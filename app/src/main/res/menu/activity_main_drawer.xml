@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <group>
+        <item android:id="@+id/nav_item_one"
+              android:icon="@drawable/ic_star"
+              android:title="Таңдаулы" />
+        <item android:id="@+id/nav_item_two"
+              android:icon="@drawable/ic_menu_headphone"
+              android:title="Менің жинағым" />
+    </group>
+
+    <group android:id="@+id/group_menu">
+        <item android:id="@+id/nav_item_four"
+              android:icon="@drawable/ic_sign_note_1"
+              android:title="Әндер" />
+        <item android:id="@+id/nav_item_five"
+              android:icon="@drawable/ic_album"
+              android:title="Шырқашы жүрек"/>
+
+        <item android:id="@+id/nav_item_five2"
+              android:icon="@drawable/ic_album"
+              android:title="Ауылды аңсау" />
+    </group>
+
+    <group android:id="@+id/group_loadadd">
+        <item android:id="@+id/nav_item_download"
+              android:icon="@drawable/ic_menu_loaded"
+              android:title="Сақтаулы" />
+        <item android:id="@+id/nav_item_add_new"
+              android:icon="@drawable/ic_add"
+              android:title="Жинақ ашу" />
+    </group>
+
+
+</menu>

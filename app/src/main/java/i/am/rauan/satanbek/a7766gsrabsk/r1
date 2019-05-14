@@ -1,0 +1,314 @@
+@file:Suppress("IMPLICIT_CAST_TO_ANY")
+
+package i.am.rauan.satanbek.a7766gsrabsk
+
+import android.Manifest
+import android.content.pm.PackageManager
+import android.media.MediaPlayer
+import android.net.Uri
+import android.support.v7.app.AppCompatActivity
+import android.os.Bundle
+import android.os.Environment
+import android.os.Handler
+import android.view.View
+import android.widget.SeekBar
+import android.widget.Toast
+import kotlinx.android.synthetic.main.activity_main.*
+import android.support.v4.app.ActivityCompat
+import android.support.v4.content.ContextCompat
+import android.util.Log
+import com.google.firebase.storage.FirebaseStorage
+import java.io.File
+import java.io.FileInputStream
+
+
+class MainActivity : AppCompatActivity() {
+    public var TAG: String = "main"
+    private lateinit var mediaPlayer: MediaPlayer
+    private lateinit var runnable: Runnable
+    private var handler: Handler = Handler()
+    private var pause: Boolean = false
+    private var storage: FirebaseStorage? = null
+
+    private var shuffleMode = 0
+    private var refreshMode = 0
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        mediaPlayer = MediaPlayer.create(this, R.raw.song)
+
+
+        playBtn.setOnClickListener {
+            if (pause) {
+                mediaPlayer.seekTo(mediaPlayer.currentPosition)
+                mediaPlayer.start()
+
+                tv_duration.text = mediaPlayer.durationInMinutes
+                pause = false
+                Toast.makeText(this, "Media playing", Toast.LENGTH_LONG)
+                setUpButtons()
+            } else {
+                createPlayer()
+            }
+
+            mediaPlayer.setOnCompletionListener {
+                if (mVisualizer != null)
+                    mVisualizer.hide()
+
+                when (refreshMode) {
+                    0 -> showPlayButton()
+                    1 -> {
+
+                    }
+                    2 -> {
+                        if (mVisualizer != null)
+                            mVisualizer.show()
+                        mediaPlayer.seekTo(0)
+                        mediaPlayer.start()
+                    }
+                }
+
+                seek_bar.progress = 0
+
+                Toast.makeText(this, "END", Toast.LENGTH_LONG)
+            }
+        }
+
+        pauseBtn.setOnClickListener{
+            if (mediaPlayer.isPlaying) {
+                mediaPlayer.pause()
+                pause = true
+                showPlayButton()
+                Toast.makeText(this, "Media pause", Toast.LENGTH_LONG)
+            }
+        }
+
+        // Seek bar change listener
+        seek_bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar, i: Int, b: Boolean) {
+                if (b) {
+                    mediaPlayer.seekTo(i * 1000)
+                }
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar) {
+            }
+
+            override fun onStopTrackingTouch(seekBar: SeekBar) {
+            }
+        })
+
+
+        refreshBtn.setOnClickListener{
+            refreshBtn.visibility = View.GONE
+            refreshBtn.isEnabled = false
+
+            refreshAllBtn.visibility = View.VISIBLE
+            refreshAllBtn.isEnabled = true
+            refreshMode = 1
+
+            refreshOneBtn.visibility = View.GONE
+            refreshOneBtn.isEnabled = false
+        }
+        refreshAllBtn.setOnClickListener{
+            refreshBtn.visibility = View.GONE
+            refreshBtn.isEnabled = false
+
+            refreshAllBtn.visibility = View.GONE
+            refreshAllBtn.isEnabled = false
+
+            refreshOneBtn.visibility = View.VISIBLE
+            refreshOneBtn.isEnabled = true
+            refreshMode = 2
+
+        }
+        refreshOneBtn.setOnClickListener{
+            refreshBtn.visibility = View.VISIBLE
+            refreshBtn.isEnabled = true
+            refreshMode = 0
+
+            refreshAllBtn.visibility = View.GONE
+            refreshAllBtn.isEnabled = false
+
+            refreshOneBtn.visibility = View.GONE
+            refreshOneBtn.isEnabled = false
+        }
+
+
+        shuffleBtn.setOnClickListener{
+            shuffleBtnActive.visibility = View.VISIBLE
+            shuffleBtnActive.isEnabled = true
+            shuffleMode = 1
+
+            shuffleBtn.visibility = View.GONE
+            shuffleBtn.isEnabled = false
+        }
+        shuffleBtnActive.setOnClickListener{
+            shuffleBtn.visibility = View.VISIBLE
+            shuffleBtn.isEnabled = true
+            shuffleMode = 0
+
+            shuffleBtnActive.visibility = View.GONE
+            shuffleBtnActive.isEnabled = false
+        }
+        createFolder("GaniMatebayev")
+
+//        Create Folder, and download song fron firebase and save inner to internat storage to folder we created
+//        createFolder("GaniMatebayev")
+//
+//        storage = FirebaseStorage.getInstance("gs://gani-matebaev.appspot.com")
+//
+//        var storageRef = storage!!.reference
+//
+//        var audio = storageRef.child("songs/auylym_ai.mp3")
+//
+//
+//        val localFile = File("${filesDir}/GaniMatebayev/auylym_ai5.mp3")
+//        var a = localFile.createNewFile()
+//        Log.d(TAG, "is created: ${a}")
+//        Log.d("main", "Is Song Exists: ${localFile.exists()}, can read: ${localFile.canRead()}")
+//
+//        audio.getFile(localFile).addOnSuccessListener {
+//            // Local temp file has been created
+//            Log.d(TAG, "Local temp file has been created")
+//            Runtime.getRuntime().exec("chmod 777 ${filesDir}/GaniMatebayev/auylym_ai5.mp3")
+//            Log.d("main", "Is Song Exists: ${localFile.exists()}, can read: ${localFile.canRead()}")
+//        }.addOnFailureListener {
+//            // Handle any errors
+//            Log.d(TAG, "Handle any errors")
+//        }
+
+    }
+
+
+
+    private fun createPlayer() {
+
+//                Read song from internal storage
+//                var songPath = "${filesDir}/GaniMatebayev/auylym_ai5.mp3"
+//
+//                var song = File(songPath)
+//                Log.d("main", "Is Song Exists: ${song.exists()}, can read: ${song.canRead()}")
+
+//                mediaPlayer = MediaPlayer.create(this, Uri.parse(songPath))
+
+        mediaPlayer = MediaPlayer.create(this, R.raw.song)
+
+        if (seek_bar.progress != 0) {
+            mediaPlayer.seekTo(seek_bar.progress)
+        }
+
+        mediaPlayer.start()
+        tv_duration.text = mediaPlayer.durationInMinutes
+        pause = false
+        Toast.makeText(this, "Media playing", Toast.LENGTH_LONG)
+
+        setUpButtons()
+    }
+
+    private fun setUpButtons() {
+        //get the AudioSessionId from your MediaPlayer and pass it to the visualizer
+        val audioSessionId = mediaPlayer.audioSessionId
+        if (audioSessionId != -1)
+            mVisualizer.setAudioSessionId(audioSessionId)
+
+        if (mVisualizer != null)
+            mVisualizer.show()
+
+        initializeSeekBar()
+        hidePlayButton()
+    }
+    private fun initializeSeekBar() {
+        seek_bar.max = mediaPlayer.seconds
+
+        runnable = Runnable {
+            seek_bar.progress = mediaPlayer.currentSeconds
+
+            tv_pass.text = mediaPlayer.currentDurationInMinutes
+
+            handler.postDelayed(runnable, 1000)
+        }
+
+        handler.postDelayed(runnable, 1000)
+    }
+
+    private fun hidePlayButton() {
+        pauseBtn.visibility = View.VISIBLE
+        pauseBtn.isEnabled = true
+
+        playBtn.visibility = View.INVISIBLE
+        playBtn.isEnabled = false
+    }
+
+    private fun showPlayButton() {
+        pauseBtn.visibility = View.INVISIBLE
+        pauseBtn.isEnabled = false
+
+        playBtn.visibility = View.VISIBLE
+        playBtn.isEnabled = true
+    }
+
+    private fun createFolder(fileName: String){
+        val folder = filesDir
+        val f = File(folder, fileName)
+        if (!f.exists()) {
+            f.mkdirs()
+            Log.d(TAG, "is folder created: ${f.absolutePath}")
+        } else {
+            Log.d(TAG, "folder is exists: ${f.absolutePath}")
+        }
+
+        val songs = File("$folder/$fileName", "songs")
+        if (!songs.exists()) {
+            songs.mkdir()
+            Log.d(TAG, "songs: folder created: ${songs.absolutePath}")
+        }
+
+        val images = File("$folder/$fileName", "images")
+        if (!images.exists()) {
+            images.mkdir()
+            Log.d(TAG, "images: folder created: ${images.absolutePath}")
+        }
+
+//        var filepath = Environment.getExternalStorageDirectory().getPath()
+//        val f = File(filepath, fileName)
+//        val songs = File("$filepath/$fileName", "songs")
+//        val imgs = File("$filepath/$fileName", "imgs")
+//
+//        var bsongs = songs.mkdir()
+//        var bimgs = imgs.mkdir()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+
+        if (mVisualizer != null)
+            mVisualizer.release()
+    }
+
+}
+
+val MediaPlayer.seconds:Int
+    get() {
+        return this.duration / 1000
+    }
+
+val MediaPlayer.currentSeconds:Int
+    get() {
+        return this.currentPosition / 1000
+    }
+
+val MediaPlayer.durationInMinutes:String
+    get() {
+        var seconds = this.seconds % 60
+        return "${this.seconds / 60}.${if (seconds < 10) "0$seconds" else seconds }"
+    }
+
+
+val MediaPlayer.currentDurationInMinutes:String
+    get() {
+        var seconds = this.currentSeconds % 60
+        return "${this.currentSeconds / 60}.${if (seconds < 10) "0$seconds" else seconds }"
+    }
