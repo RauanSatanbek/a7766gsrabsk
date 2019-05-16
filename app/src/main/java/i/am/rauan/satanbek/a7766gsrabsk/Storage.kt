@@ -11,7 +11,24 @@ import android.R.id.edit
 
 
 class Storage(context: Context) {
-    val updateUIReceiverAction = "i.am.rauan.satanbek.a7766gsrabsk.gani.matebayev.UPDATE_UI"
+    val updateUIReceiverAction = "i.am.rauan.satanbek.a7766gsrabsk.gani.matebayev.UPDATE_ACTIVITY_UI"
+    val updateUIPlay = "update_ui_to_play"
+    val updateUIPause = "update_ui_to_pause"
+    val updateUIResume = "update_ui_to_resume"
+    val updateUIStop = "update_ui_to_stop"
+    val updateUISkipToNext = "update_ui_to_skip_to_next"
+    val updateUISkipToPrevious = "update_ui_to_skip_to_previous"
+
+    val updateUIPlayUpdate = "update_ui_to_play_update"
+    val updateUIPauseUpdate = "update_ui_to_pause_update"
+    val updateUIResumeUpdate = "update_ui_to_resume_update"
+    val updateUIStopUpdate = "update_ui_to_stop_update"
+    val updateUISkipToNextUpdate = "update_ui_to_skip_to_next_update"
+    val updateUISkipToPreviousUpdate = "update_ui_to_skip_to_previous_update"
+
+    //AudioPlayer notification ID
+    val NOTIFICATION_ID = 101
+
     val playNewSongReceiverAction = "i.am.rauan.satanbek.a7766gsrabsk.gani.matebayev.PLAY_NEW_SONG"
     private val STORAGE: String = "i.am.rauan.satanbek.a7766gsrabsk.gani.matebayev.STORAGE"
     private var preferences: SharedPreferences? = null
@@ -104,20 +121,34 @@ class Storage(context: Context) {
         preferences = getPreferences()
         val gson = Gson()
         val json = preferences?.getString("audioArrayList", null)
-        val type = object : TypeToken<ArrayList<Song>>() {}.type
 
-        return gson.fromJson(json, type)
+        if (json != null) {
+            val type = object : TypeToken<ArrayList<Song>>() {}.type
+
+            return gson.fromJson(json, type)
+        }
+
+        return ArrayList()
     }
 
-    fun setCurrentSongIndex(position: Int) {
-        var editor: SharedPreferences.Editor = getEditor()
-
-        editor.putInt("currentSongIndex", position)
-        editor.apply()
+    fun setCurrentSong(song: Song) {
+        getEditor().putString("currentSong", Gson().toJson(song)).apply()
     }
 
-    fun getCurrentSongIndex(): Int {
-        return getPreferences()!!.getInt("currentSongIndex", 0)
+    fun getCurrentSong(): Song {
+        val type = object : TypeToken<Song>() {}.type
+        if (getPreferences()!!.getString("currentSong", "") != "")
+            return Gson().fromJson(getPreferences()!!.getString("currentSong", ""), type)
+
+        return Song(0, 0, "", "", "", "", false, "", "")
+    }
+
+    fun isPlayerActive(): Boolean {
+        return getPreferences()!!.getBoolean("is_player_active", false)
+    }
+
+    fun playerActive() {
+        getEditor().putBoolean("is_player_active", true).apply()
     }
 
     private fun getPreferences(): SharedPreferences? {

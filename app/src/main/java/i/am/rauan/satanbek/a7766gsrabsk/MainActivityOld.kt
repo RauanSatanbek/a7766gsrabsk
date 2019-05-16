@@ -1,10 +1,9 @@
-@file:Suppress("IMPLICIT_CAST_TO_ANY", "DEPRECATION")
+@file:Suppress("IMPLICIT_CAST_TO_ANY")
 
 package i.am.rauan.satanbek.a7766gsrabsk
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.NotificationManager
 import android.content.*
 import android.content.pm.PackageManager
 import android.support.v7.app.AppCompatActivity
@@ -35,7 +34,7 @@ import android.view.MenuItem
 
 
 @SuppressLint("ByteOrderMark")
-class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelectedListener {
+class MainActivityOld : AppCompatActivity(), NavigationView.OnNavigationItemSelectedListener {
     var TAG: String = "main"
 
     //Create placeholder for user's consent to record_audio permission.
@@ -60,8 +59,45 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     private lateinit var linearLayoutManager: LinearLayoutManager
     private var recyclerAdapter: RecyclerAdapter? = null
 
-    //AudioPlayer notification ID
-    val NOTIFICATION_ID = 101
+    //Binding this Client to the AudioPlayer Service
+    private val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName, service: IBinder) {
+            // We've bound to LocalService, cast the IBinder and get LocalService instance
+            val binder = service as MediaPlayerService.LocalBinder
+            player = binder.service
+            serviceBound = true
+
+            Toast.makeText(this@MainActivityOld, "Service Bound", Toast.LENGTH_SHORT).show()
+
+            when(sharedStorage!!.getPause()) {
+                true -> {
+                    showPlayButton()
+                }
+                false -> {
+                    playOrResumeSong()
+                    MainContainer.visibility = View.VISIBLE
+                    showPauseButton()
+                }
+            }
+
+        }
+
+        override fun onServiceDisconnected(name: ComponentName) {
+            serviceBound = false
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle?) {
+        outState?.putBoolean("ServiceState", serviceBound)
+
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun onRestoreInstanceState(savedInstanceState: Bundle?) {
+        super.onRestoreInstanceState(savedInstanceState)
+
+        serviceBound = savedInstanceState!!.getBoolean("ServiceState")
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,6 +105,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
         setContentView(R.layout.activity_main)
 
+        //setting toolbar
         setSupportActionBar(findViewById(R.id.toolbar))
 
         toggle = ActionBarDrawerToggle(this, drawer_layout, toolbar, R.string.navigation_drawer_open, R.string.navigation_drawer_close)
@@ -77,58 +114,39 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             drawer_layout.openDrawer(GravityCompat.START)
         }
         toggle.setHomeAsUpIndicator(R.drawable.ic_humburger)
+        mediaPlayerContainer.visibility = View.GONE
 
         nav_view.setNavigationItemSelectedListener(this)
         nav_view.itemIconTintList = null
         if (Build.VERSION.SDK_INT >= 23) {
+            // Do something for lollipop and above versions
             try {
-                // Set NavView bg
                 nav_view.background = AppCompatResources.getDrawable(this, R.drawable.ic_nav_bg_vector)
             } catch (ex: Exception) {
                 Log.d(TAG, "Unable to set vector background to NavigationView, API Level = ${Build.VERSION.SDK_INT}")
             }
         }
 
-        // Init storage
+        // init storage
         sharedStorage = Storage(this)
-        loadSongs()
 
-        initUI()
         requestAudioPermissions(false)
+
+        loadSongs()
         initMediaService()
-    }
 
-    override fun onRestart() {
-        super.onRestart()
-
-        if (recyclerAdapter != null) {
-            recyclerAdapter?.play()
-        }
-
-        var notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.cancel(NOTIFICATION_ID)
-    }
-    // Первоначальная настройка UI элементов.
-    private fun initUI() {
-        setColorMode()
-
-        mediaPlayerContainer.visibility = View.GONE
-
-        // Обнавляем UI элементы, в зависимости от recyclerView, Service
-        val updateUIFilter = IntentFilter()
-        updateUIFilter.addAction(sharedStorage?.updateUIReceiverAction)
+        val filter = IntentFilter()
+        filter.addAction(sharedStorage?.updateUIReceiverAction)
         updateUIReciver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
-
+                Log.d(TAG, "onReceive activity")
                 if (intent.getStringExtra("tv_duration") != "") {
                     Log.d(TAG, "onReceive tv_duration = ${intent.getStringExtra("tv_duration")}")
                     tv_duration.text = intent.getStringExtra("tv_duration")
                 }
 
                 if(intent.getBooleanExtra("media_playing", false)) {
-                    activateVisualizer()
-                    activateSeekBar()
-                    showPauseButton()
+                    setUpMediaView()
                 }
 
                 if (intent.getBooleanExtra("showPlayButton", false)) {
@@ -145,132 +163,39 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
                     handler.removeCallbacks(runnable)
                 }
 
-                // PLAY
-                if (intent.getBooleanExtra(sharedStorage?.updateUIPlay, false)) {
+                if (intent.getBooleanExtra("holder_playSong", false)) {
                     mediaPlayerContainer.visibility = View.VISIBLE
 
+                    recyclerAdapter?.offAll()
+                    // Send media with BroadcastReceiver
                     val broadcastIntent = Intent(sharedStorage!!.playNewSongReceiverAction)
                     broadcastIntent.putExtra("play", true)
                     sendBroadcast(broadcastIntent)
 
-                    activateVisualizer()
-                    activateSeekBar()
                     showPauseButton()
-
-                    recyclerAdapter?.play()
-                    sharedStorage?.setPause(false)
                 }
 
-                // PAUSE
-                if (intent.getBooleanExtra(sharedStorage?.updateUIPause, false)) {
-                    Pause()
+                if (intent.getBooleanExtra("holder_pauseSong", false)) {
+                    // Send media with BroadcastReceiver
+                    pauseSong()
                 }
 
-                // RESUME
-                if (intent.getBooleanExtra(sharedStorage?.updateUIResume, false)) {
-
-                }
-
-                // STOP
-                if (intent.getBooleanExtra(sharedStorage?.updateUIStop, false)) {
-
-                }
-
-                // NEXT
-                if (intent.getBooleanExtra(sharedStorage?.updateUISkipToNext, false)) {
-                    Next()
-                }
-
-                // PREVIOUS
-                if (intent.getBooleanExtra(sharedStorage?.updateUISkipToPrevious, false)) {
-                    Previous()
-                }
-
-                // PLAY Update just UI
-                if (intent.getBooleanExtra(sharedStorage?.updateUIPlayUpdate, false)) {
-                    showPauseButton()
-                    activateSeekBar()
-                    activateVisualizer()
-
+                if (intent.getBooleanExtra("skipSong_updateUI", false)) {
+                    // Activate Song from List
                     recyclerAdapter?.play()
                 }
 
-                // PAUSE Update just UI
-                if (intent.getBooleanExtra(sharedStorage?.updateUIPauseUpdate, false)) {
-                    showPlayButton()
-
-                    recyclerAdapter?.pause()
-                }
             }
         }
 
-        registerReceiver(updateUIReciver, updateUIFilter)
+        registerReceiver(updateUIReciver, filter)
 
-        // PLAY
-        playBtn.setOnClickListener {
-            Play()
-        }
+        initMediaPlayerButtons()
 
-        // PAUSE
-        pauseBtn.setOnClickListener{
-            Pause()
-        }
-
-        // NEXT
-        nextBtn.setOnClickListener {
-            Next()
-        }
-
-        // PREVIOUS
-        prevBtn.setOnClickListener {
-            Previous()
-        }
-
-        // Seek bar change listener
-        seek_bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar, i: Int, b: Boolean) {
-                if (b) {
-                    player?.seekTo(i * 1000)
-                    sharedStorage!!.setResumePosition(i)
-                }
-            }
-
-            override fun onStartTrackingTouch(seekBar: SeekBar) {
-            }
-
-            override fun onStopTrackingTouch(seekBar: SeekBar) {
-            }
-        })
-
-        refreshBtn.setOnClickListener{
-            showRefreshOne()
-        }
-        refreshOneBtn.setOnClickListener{
-            showRefresh()
-        }
-        shuffleBtn.setOnClickListener{
-            showShuffleActive()
-        }
-        shuffleBtnActive.setOnClickListener{
-            showShuffle()
-        }
-
-
-        when(sharedStorage!!.getRefreshMode()) {
-            0 -> showRefresh()
-            1 -> showRefreshOne()
-        }
-
-        when(sharedStorage!!.getShuffleMode()) {
-            0 -> showShuffle()
-            1 -> showShuffleActive()
-        }
-
-//        createFolder("GaniMatebayev")
-
+        // Set Color Mode
+        setColorMode()
     }
 
-    // Set color mode to DARK or LIGHT
     private fun setColorMode() {
         when(sharedStorage?.getColorMode()) {
             sharedStorage?.DARK_MODE -> {
@@ -331,6 +256,232 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         }
     }
 
+    private fun loadSongs() {
+        linearLayoutManager = LinearLayoutManager(this)
+        listOfSongs.layoutManager = linearLayoutManager
+
+        songs.add(Song(1, R.raw.song, "null", "Ауылым ай", "Шырқашы жүрек", "Gani Matebayev", true, "", ""))
+        songs.add(Song(2, R.raw.song2, "null", "Дүнген қызы арманым", "Ауылды аңсау", "Gani Matebayev", false, "", ""))
+        songs.add(Song(3, R.raw.song3, "null", "Достар", "Шырқашы жүрек", "Gani Matebayev",false, "", ""))
+        songs.add(Song(4, R.raw.song3, "null", "Бауырларыма", "Ауылды аңсау", "Gani Matebayev", false, "", ""))
+        songs.add(Song(5 ,R.raw.song3, "null", "Бұл сағыныш", "Шырқашы жүрек", "Gani Matebayev", true, "", ""))
+        songs.add(Song(6 ,R.raw.song3, "null", "Аңғал досым", "Ауылды аңсау", "Gani Matebayev", true, "", ""))
+        songs.add(Song(7 ,R.raw.song3, "null", "Әкені аңсау", "Шырқашы жүрек", "Gani Matebayev", false, "", ""))
+        songs.add(Song(8 ,R.raw.song3, "null", "Ақ маржан", "Ауылды аңсау", "Gani Matebayev", false, "", ""))
+        songs.add(Song(9 ,R.raw.song3, "null", "Сағындым ғой", "Ауылды аңсау", "Gani Matebayev", false, "", ""))
+
+        sharedStorage?.storeSongs(songs)
+
+        recyclerAdapter = RecyclerAdapter(songs, this)
+
+        listOfSongs.adapter = recyclerAdapter
+    }
+
+    // Handle request permissions
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        when (requestCode) {
+            MY_PERMISSIONS_RECORD_AUDIO -> {
+
+                if (grantResults.isEmpty() || grantResults[0] != PackageManager.PERMISSION_GRANTED) {
+
+                    Log.i(TAG, "Permission has been denied by user")
+                    Toast.makeText(this, "Рұқсат күтілуде!", Toast.LENGTH_LONG).show()
+                } else {
+                    Log.i(TAG, "Permission has been granted by user")
+                    requestAudioPermissions(true)
+                }
+            }
+        }
+    }
+
+    // Request for AUDIO_RECORD Permission
+    fun requestAudioPermissions(run: Boolean) {
+        //If permission is granted, then go ahead recording audio
+        if (ContextCompat.checkSelfPermission(this,
+                Manifest.permission.RECORD_AUDIO)
+            == PackageManager.PERMISSION_GRANTED && run) {
+
+            // Init Player
+            initPlayer()
+        }
+
+        else if (ContextCompat.checkSelfPermission(this,
+                Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED) {
+
+            //When permission is not granted by user, show them message why this permission is needed.
+            if (ActivityCompat.shouldShowRequestPermissionRationale(this,
+                    Manifest.permission.RECORD_AUDIO)) {
+                Toast.makeText(this, "Өлең тыңдау үшін, RECORD_AUDIO - ны қолдануға рұқсатыңызды беріңіз!", Toast.LENGTH_LONG).show()
+
+                //Give user option to still opt-in the permissions
+                ActivityCompat.requestPermissions(this,
+                    arrayOf(Manifest.permission.RECORD_AUDIO),
+                    MY_PERMISSIONS_RECORD_AUDIO)
+
+            } else {
+                // Show user dialog to grant permission to record audio
+                ActivityCompat.requestPermissions(this,
+                    arrayOf(Manifest.permission.RECORD_AUDIO),
+                    MY_PERMISSIONS_RECORD_AUDIO)
+            }
+        }
+    }
+
+    private fun initMediaService() {
+        //Check is service is active
+        if (!serviceBound) {
+            val playerIntent = Intent(this, MediaPlayerService::class.java)
+            playerIntent.putExtra("media", "raone")
+            playerIntent.putExtra("song_index", 1)
+            startService(playerIntent)
+            bindService(playerIntent, serviceConnection, Context.BIND_AUTO_CREATE)
+        } else {
+            // Service is active
+            // Send media with BroadcastReceiver
+            val broadcastIntent = Intent(sharedStorage!!.playNewSongReceiverAction)
+            sendBroadcast(broadcastIntent)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+
+        initMediaPlayerButtons()
+    }
+
+    private fun playOrResumeSong() {
+        if (sharedStorage!!.getPause()) {
+
+            if (ContextCompat.checkSelfPermission(this,
+                    Manifest.permission.RECORD_AUDIO)
+                == PackageManager.PERMISSION_GRANTED) {
+
+                player?.resumeMedia()
+
+                recyclerAdapter?.play()
+                sharedStorage!!.setPause(false)
+            } else {
+                requestAudioPermissions(true)
+            }
+
+            Toast.makeText(this, "Media playing", Toast.LENGTH_LONG)
+        } else {
+            requestAudioPermissions(true)
+        }
+    }
+
+    private fun pauseSong() {
+        player?.pauseMedia()
+        sharedStorage!!.setPause(true)
+        showPlayButton()
+        recyclerAdapter?.pause()
+    }
+
+    private fun initMediaPlayerButtons() {
+        // Click to PLAY BUTTON
+        playBtn.setOnClickListener {
+            playOrResumeSong()
+        }
+
+        pauseBtn.setOnClickListener{
+            pauseSong()
+        }
+
+        // Seek bar change listener
+        seek_bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar, i: Int, b: Boolean) {
+                if (b) {
+                    player?.seekTo(i * 1000)
+                    sharedStorage!!.setResumePosition(i)
+                }
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar) {
+            }
+
+            override fun onStopTrackingTouch(seekBar: SeekBar) {
+            }
+        })
+
+        refreshBtn.setOnClickListener{
+            showRefreshOne()
+        }
+        refreshOneBtn.setOnClickListener{
+            showRefresh()
+        }
+
+
+        shuffleBtn.setOnClickListener{
+            showShuffleActive()
+        }
+        shuffleBtnActive.setOnClickListener{
+            showShuffle()
+        }
+
+        prevBtn.setOnClickListener {
+            // Send media with BroadcastReceiver
+            val broadcastIntent = Intent(sharedStorage!!.playNewSongReceiverAction)
+            broadcastIntent.putExtra("skipToPrevious", true)
+
+            sendBroadcast(broadcastIntent)
+
+//            sharedStorage?.setDarkMode()
+//            setColorMode()
+        }
+
+        nextBtn.setOnClickListener {
+
+            // Send media with BroadcastReceiver
+            val broadcastIntent = Intent(sharedStorage!!.playNewSongReceiverAction)
+            broadcastIntent.putExtra("skipToNext", true)
+            sendBroadcast(broadcastIntent)
+
+//            sharedStorage?.setLightMode()
+//            setColorMode()
+        }
+
+        when(sharedStorage!!.getRefreshMode()) {
+            0 -> showRefresh()
+            1 -> showRefreshOne()
+        }
+
+        when(sharedStorage!!.getShuffleMode()) {
+            0 -> showShuffle()
+            1 -> showShuffleActive()
+        }
+
+        createFolder("GaniMatebayev")
+
+//        Create Folder, and download song fron firebase and save inner to internat storage to folder we created
+//        createFolder("GaniMatebayev")
+//
+//        storage = FirebaseStorage.getInstance("gs://gani-matebaev.appspot.com")
+//
+//        var storageRef = storage!!.reference
+//
+//        var audio = storageRef.child("songs/auylym_ai.mp3")
+//
+//
+//        val localFile = File("${filesDir}/GaniMatebayev/auylym_ai5.mp3")
+//        var a = localFile.createNewFile()
+//        Log.d(TAG, "is created: ${a}")
+//        Log.d("main", "Is Song Exists: ${localFile.exists()}, can read: ${localFile.canRead()}")
+//
+//        audio.getFile(localFile).addOnSuccessListener {
+//            // Local temp file has been created
+//            Log.d(TAG, "Local temp file has been created")
+//            Runtime.getRuntime().exec("chmod 777 ${filesDir}/GaniMatebayev/auylym_ai5.mp3")
+//            Log.d("main", "Is Song Exists: ${localFile.exists()}, can read: ${localFile.canRead()}")
+//        }.addOnFailureListener {
+//            // Handle any errors
+//            Log.d(TAG, "Handle any errors")
+//        }
+
+    }
+
     private fun showPauseButton() {
         pauseBtn.visibility = View.VISIBLE
         pauseBtn.isEnabled = true
@@ -385,22 +536,48 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         sharedStorage!!.setRefreshMode(1)
     }
 
-    private fun activateVisualizer () {
+    private fun initPlayer() {
+
+//                Read song from internal storage
+//                var songPath = "${filesDir}/GaniMatebayev/auylym_ai5.mp3"
+//
+//                var song = File(songPath)
+//                Log.d("main", "Is Song Exists: ${song.exists()}, can read: ${song.canRead()}")
+
+//                mediaPlayer = MediaPlayer.create(this, Uri.parse(songPath))
+
+//        mediaPlayer = MediaPlayer.create(this, R.raw.song)
+//
+//        if (seek_bar.progress != 0) {
+//            mediaPlayer.seekTo(seek_bar.progress)
+//        }
+//
+//        mediaPlayer.start
+
+        Log.d(TAG, "INIT Player")
+        player?.playMedia()
+        recyclerAdapter?.play()
+        sharedStorage?.setPause(false)
+
+        setUpMediaView()
+    }
+
+    private fun setUpMediaView() {
         //get the AudioSessionId from your MediaPlayer and pass it to the visualizer
         try {
             requestAudioPermissions(false)
             val audioSessionId = player!!.getAudioSessionId()
             if (audioSessionId != -1)
                 mVisualizer.setAudioSessionId(audioSessionId)
-
-//                recyclerAdapter?.setAudioSessionID(audioSessionId)
-
         } catch (e: Exception) {
             Log.e(TAG, "setUpMediaView: mVisualizer.setAudioSessionId - ${e.toString()}")
         }
+
+        initializeSeekBar()
+        showPauseButton()
     }
 
-    private fun activateSeekBar() {
+    private fun initializeSeekBar() {
         seek_bar.max = player!!.getSeconds()
 
         runnable = Runnable {
@@ -412,202 +589,6 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
         handler.postDelayed(runnable, 1000)
     }
-
-    // Request for AUDIO_RECORD Permission
-    fun requestAudioPermissions(play: Boolean) {
-        //If permission is granted, then go to play audio
-        if (ContextCompat.checkSelfPermission(this,
-                Manifest.permission.RECORD_AUDIO)
-            == PackageManager.PERMISSION_GRANTED && play) {
-
-            Play()
-        }
-
-        else if (ContextCompat.checkSelfPermission(this,
-                Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED) {
-
-            //When permission is not granted by user, show them message why this permission is needed.
-            if (ActivityCompat.shouldShowRequestPermissionRationale(this,
-                    Manifest.permission.RECORD_AUDIO)) {
-                Toast.makeText(this, "Өлең тыңдау үшін, RECORD_AUDIO - ны қолдануға рұқсатыңызды беріңіз!", Toast.LENGTH_LONG).show()
-
-                //Give user option to still opt-in the permissions
-                ActivityCompat.requestPermissions(this,
-                    arrayOf(Manifest.permission.RECORD_AUDIO),
-                    MY_PERMISSIONS_RECORD_AUDIO)
-
-            } else {
-                // Show user dialog to grant permission to record audio
-                ActivityCompat.requestPermissions(this,
-                    arrayOf(Manifest.permission.RECORD_AUDIO),
-                    MY_PERMISSIONS_RECORD_AUDIO)
-            }
-        }
-    }
-
-    private fun loadSongs() {
-        linearLayoutManager = LinearLayoutManager(this)
-        listOfSongs.layoutManager = linearLayoutManager
-        songs = ArrayList()
-
-        songs.add(Song(1, R.raw.song, "null", "Ауылым ай", "Шырқашы жүрек", "Gani Matebayev", true, "", ""))
-        songs.add(Song(2, R.raw.song2, "null", "Дүнген қызы арманым", "Ауылды аңсау", "Gani Matebayev", false, "", ""))
-        songs.add(Song(3, R.raw.song3, "null", "Достар", "Шырқашы жүрек", "Gani Matebayev",false, "", ""))
-        songs.add(Song(4, R.raw.song3, "null", "Бауырларыма", "Ауылды аңсау", "Gani Matebayev", false, "", ""))
-        songs.add(Song(5 ,R.raw.song3, "null", "Бұл сағыныш", "Шырқашы жүрек", "Gani Matebayev", true, "", ""))
-        songs.add(Song(6 ,R.raw.song3, "null", "Аңғал досым", "Ауылды аңсау", "Gani Matebayev", true, "", ""))
-        songs.add(Song(7 ,R.raw.song3, "null", "Әкені аңсау", "Шырқашы жүрек", "Gani Matebayev", false, "", ""))
-        songs.add(Song(8 ,R.raw.song3, "null", "Ақ маржан", "Ауылды аңсау", "Gani Matebayev", false, "", ""))
-        songs.add(Song(9 ,R.raw.song3, "null", "Сағындым ғой", "Ауылды аңсау", "Gani Matebayev", false, "", ""))
-
-        songs.add(Song(10, R.raw.song, "null", "Ауылым ай", "Шырқашы жүрек", "Gani Matebayev", true, "", ""))
-        songs.add(Song(11, R.raw.song2, "null", "Дүнген қызы арманым", "Ауылды аңсау", "Gani Matebayev", false, "", ""))
-        songs.add(Song(12, R.raw.song3, "null", "Достар", "Шырқашы жүрек", "Gani Matebayev",false, "", ""))
-        songs.add(Song(13, R.raw.song3, "null", "Бауырларыма", "Ауылды аңсау", "Gani Matebayev", false, "", ""))
-        songs.add(Song(14 ,R.raw.song3, "null", "Бұл сағыныш", "Шырқашы жүрек", "Gani Matebayev", true, "", ""))
-        songs.add(Song(15 ,R.raw.song3, "null", "Аңғал досым", "Ауылды аңсау", "Gani Matebayev", true, "", ""))
-        songs.add(Song(16 ,R.raw.song3, "null", "Әкені аңсау", "Шырқашы жүрек", "Gani Matebayev", false, "", ""))
-        songs.add(Song(17 ,R.raw.song3, "null", "Ақ маржан", "Ауылды аңсау", "Gani Matebayev", false, "", ""))
-        songs.add(Song(18 ,R.raw.song3, "null", "Сағындым ғой", "Ауылды аңсау", "Gani Matebayev", false, "", ""))
-
-        sharedStorage?.storeSongs(songs)
-
-        recyclerAdapter = RecyclerAdapter(songs, this)
-
-        listOfSongs.adapter = recyclerAdapter
-    }
-
-    private fun initMediaService() {
-        //Check is service is active
-        if (!serviceBound) {
-            val playerIntent = Intent(this, MediaPlayerService::class.java)
-            startService(playerIntent)
-            bindService(playerIntent, serviceConnection, Context.BIND_AUTO_CREATE)
-        } else {
-            // Service is active
-            // Send media with BroadcastReceiver
-            val broadcastIntent = Intent(sharedStorage!!.playNewSongReceiverAction)
-            sendBroadcast(broadcastIntent)
-            recyclerAdapter?.play()
-        }
-    }
-
-    private fun Play() {
-        if (ContextCompat.checkSelfPermission(this,
-                Manifest.permission.RECORD_AUDIO)
-            == PackageManager.PERMISSION_GRANTED) {
-            if (sharedStorage?.getPause()!!) {
-                player?.resumeMedia()
-
-                activateVisualizer()
-                activateSeekBar()
-                showPauseButton()
-
-                recyclerAdapter?.play()
-                sharedStorage?.setPause(false)
-            }
-        } else {
-            requestAudioPermissions(true)
-        }
-    }
-
-    private fun Pause() {
-        if (!sharedStorage?.getPause()!!) {
-            player?.pauseMedia()
-        }
-
-        showPlayButton()
-        recyclerAdapter?.pause()
-        sharedStorage?.setPause(true)
-    }
-
-    private fun Next() {
-        player?.skipToNext()
-
-        activateVisualizer()
-        activateSeekBar()
-        showPauseButton()
-
-        recyclerAdapter?.next()
-        sharedStorage?.setPause(false)
-
-    }
-
-    private fun Previous() {
-        player?.skipToPrevious()
-
-        activateVisualizer()
-        activateSeekBar()
-        showPauseButton()
-
-        recyclerAdapter?.previous()
-        sharedStorage?.setPause(false)
-    }
-
-    //Binding this Client to the AudioPlayer Service
-    private val serviceConnection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName, service: IBinder) {
-            // We've bound to LocalService, cast the IBinder and get LocalService instance
-            val binder = service as MediaPlayerService.LocalBinder
-            player = binder.service
-            serviceBound = true
-
-            Toast.makeText(this@MainActivity, "Service Bound", Toast.LENGTH_SHORT).show()
-
-            when(sharedStorage!!.getPause()) {
-                true -> {
-                    showPlayButton()
-                }
-                false -> {
-                    recyclerAdapter?.resume()
-
-                    if (!serviceBound) {
-                        initMediaService()
-                    }
-                    mediaPlayerContainer.visibility = View.VISIBLE
-                }
-            }
-
-        }
-
-        override fun onServiceDisconnected(name: ComponentName) {
-            serviceBound = false
-        }
-    }
-
-    override fun onSaveInstanceState(outState: Bundle?) {
-        outState?.putBoolean("ServiceState", serviceBound)
-
-        super.onSaveInstanceState(outState)
-    }
-
-    override fun onRestoreInstanceState(savedInstanceState: Bundle?) {
-        super.onRestoreInstanceState(savedInstanceState)
-
-        serviceBound = savedInstanceState!!.getBoolean("ServiceState")
-    }
-
-
-    // Handle request permissions
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-
-        when (requestCode) {
-            MY_PERMISSIONS_RECORD_AUDIO -> {
-
-                if (grantResults.isEmpty() || grantResults[0] != PackageManager.PERMISSION_GRANTED) {
-
-                    Log.i(TAG, "Permission has been denied by user")
-                    Toast.makeText(this, "Рұқсат күтілуде!", Toast.LENGTH_LONG).show()
-                } else {
-                    Log.i(TAG, "Permission has been granted by user")
-                    requestAudioPermissions(true)
-                }
-            }
-        }
-    }
-
 
     private fun createFolder(fileName: String){
         val folder = filesDir
@@ -677,13 +658,9 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     override fun onStop() {
         super.onStop()
 
-        if (sharedStorage?.getPause()!!) {
-            player?.buildNotification(PlaybackStatus.PAUSED)
-        } else {
-            player?.buildNotification(PlaybackStatus.PLAYING)
-        }
+        player?.buildNotification(PlaybackStatus.PLAYING)
     }
-
+    
     override fun onDestroy() {
         super.onDestroy()
 

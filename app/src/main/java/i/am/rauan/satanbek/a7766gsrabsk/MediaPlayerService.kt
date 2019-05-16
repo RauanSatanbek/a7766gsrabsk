@@ -9,10 +9,21 @@ import android.content.IntentFilter
 import android.os.IBinder
 import android.media.AudioManager
 import android.os.Binder
+import android.os.RemoteException
 import android.util.Log
 import android.telephony.PhoneStateListener
 import android.telephony.TelephonyManager
 import android.widget.Toast
+import android.support.v4.media.session.MediaControllerCompat
+import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.MediaMetadataCompat
+import android.annotation.SuppressLint
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.support.v4.app.NotificationCompat
+import android.graphics.BitmapFactory
+import android.graphics.Bitmap
+import android.media.session.MediaSessionManager
 
 
 class MediaPlayerService : Service(), MediaPlayer.OnCompletionListener, MediaPlayer.OnPreparedListener,
@@ -34,7 +45,21 @@ class MediaPlayerService : Service(), MediaPlayer.OnCompletionListener, MediaPla
     private var phoneStateListener: PhoneStateListener? = null
     private var telephonyManager: TelephonyManager? = null
     private var sharedStorage: Storage? = null
-    private var songs: ArrayList<Song>? = null
+    private var songs: ArrayList<Song> = ArrayList()
+
+    val ACTION_PLAY = "com.valdioveliu.valdio.audioplayer.ACTION_PLAY"
+    val ACTION_PAUSE = "com.valdioveliu.valdio.audioplayer.ACTION_PAUSE"
+    val ACTION_PREVIOUS = "com.valdioveliu.valdio.audioplayer.ACTION_PREVIOUS"
+    val ACTION_NEXT = "com.valdioveliu.valdio.audioplayer.ACTION_NEXT"
+    val ACTION_STOP = "com.valdioveliu.valdio.audioplayer.ACTION_STOP"
+
+    //MediaSession
+    private var mediaSessionManager: MediaSessionManager? = null
+    private var mediaSession: MediaSessionCompat? = null
+    private var transportControls: MediaControllerCompat.TransportControls? = null
+
+    //AudioPlayer notification ID
+    val NOTIFICATION_ID = 101
 
     // Becoming noisy
     private var becomingNoisyReceiver = object : BroadcastReceiver() {
@@ -53,8 +78,6 @@ class MediaPlayerService : Service(), MediaPlayer.OnCompletionListener, MediaPla
     // Play new song
     private var playNewSongReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            Log.d(LOG_TAG, "playNewSongReceiver: onReceive")
-
             stopMedia()
             mediaPlayer?.reset()
             initMediaPlayer()
@@ -75,7 +98,12 @@ class MediaPlayerService : Service(), MediaPlayer.OnCompletionListener, MediaPla
         sharedStorage = Storage(this)
 
         // load songs
-        songs = sharedStorage?.loadSongs()
+        songs = sharedStorage?.loadSongs()!!
+
+        // Manage incoming phone calls during playback.
+        // Pause MediaPlayer on incoming call,
+        // Resume on hangup.
+        callStateListener()
 
         // ACTION_AUDIO_BECOMING_NOISY -- change in audio outputs -- BroadcastReceiver
         registerBecomingNoisyReceiver()
@@ -88,6 +116,92 @@ class MediaPlayerService : Service(), MediaPlayer.OnCompletionListener, MediaPla
         return iBinder
     }
 
+    @SuppressLint("ServiceCast")
+    @Throws(RemoteException::class)
+    private fun initMediaSession() {
+        if (mediaSessionManager != null) return  //mediaSessionManager exists
+
+        mediaSessionManager = this.getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
+        // Create a new MediaSession
+        mediaSession = MediaSessionCompat(applicationContext, "AudioPlayer")
+        //Get MediaSessions transport controls
+        transportControls = mediaSession!!.controller.transportControls
+        //set MediaSession -> ready to receive media commands
+        mediaSession!!.isActive = true
+        //indicate that the MediaSession handles transport control commands
+        // through its MediaSessionCompat.Callback.
+        mediaSession!!.setFlags(MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS)
+
+        //Set mediaSession's MetaData
+        updateMetaData()
+
+        // Attach Callback to receive MediaSession updates
+        mediaSession!!.setCallback(object : MediaSessionCompat.Callback() {
+            // Implement callbacks
+            override fun onPlay() {
+                super.onPlay()
+                Log.d(LOG_TAG, "mediaSession onPlay")
+                var intent = Intent(sharedStorage?.updateUIReceiverAction)
+                intent.putExtra(sharedStorage?.updateUIPlayUpdate, true)
+                sendBroadcast(intent)
+
+                resumeMedia()
+                buildNotification(PlaybackStatus.PLAYING)
+            }
+
+            override fun onPause() {
+                super.onPause()
+                Log.d(LOG_TAG, "mediaSession onPause")
+
+                var intent = Intent(sharedStorage?.updateUIReceiverAction)
+                intent.putExtra(sharedStorage?.updateUIPauseUpdate, true)
+                sendBroadcast(intent)
+                pauseMedia()
+
+                buildNotification(PlaybackStatus.PAUSED)
+            }
+
+            override fun onSkipToNext() {
+                super.onSkipToNext()
+                Log.d(LOG_TAG, "mediaSession onSkipToNext")
+                skipToNext()
+                updateMetaData()
+                buildNotification(PlaybackStatus.PLAYING)
+            }
+
+            override fun onSkipToPrevious() {
+                super.onSkipToPrevious()
+                Log.d(LOG_TAG, "mediaSession onSkipToPrevious")
+                skipToPrevious()
+                updateMetaData()
+                buildNotification(PlaybackStatus.PLAYING)
+            }
+
+            override fun onStop() {
+                super.onStop()
+                Log.d(LOG_TAG, "mediaSession onStop")
+                removeNotification()
+                //Stop the service
+                stopSelf()
+            }
+
+            override fun onSeekTo(position: Long) {
+                super.onSeekTo(position)
+            }
+        })
+    }
+
+
+    private fun updateMetaData() {
+
+        // Update the current metadata
+        mediaSession!!.setMetadata(
+            MediaMetadataCompat.Builder()
+                .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, sharedStorage?.getCurrentSong()!!.album)
+                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, sharedStorage?.getCurrentSong()!!.title)
+            .build()
+    )
+}
     override fun onBufferingUpdate(mp: MediaPlayer, percent: Int) {
         // Invoked indicating buffering status of
         // a media resource being streamed over the network.
@@ -214,9 +328,10 @@ class MediaPlayerService : Service(), MediaPlayer.OnCompletionListener, MediaPla
     }
 
     private fun initMediaPlayer() {
-        var song = songs?.get(sharedStorage?.getCurrentSongIndex()!!)
+        var song = sharedStorage?.getCurrentSong()
 
-        mediaPlayer = MediaPlayer.create(this, song?.id!!)
+        mediaPlayer = MediaPlayer.create(this, song?.resID!!)
+        mediaPlayer?.seekTo(sharedStorage!!.getResumePosition())
 
         // Set up MediaPlayer event listener
         mediaPlayer?.setOnCompletionListener(this)
@@ -238,7 +353,6 @@ class MediaPlayerService : Service(), MediaPlayer.OnCompletionListener, MediaPla
 
                 }
             }
-
 
             // Update Seek bar progress
             val local = Intent()
@@ -304,7 +418,7 @@ class MediaPlayerService : Service(), MediaPlayer.OnCompletionListener, MediaPla
     fun resumeMedia() {
         if (mediaPlayer == null) restoreMedia()
 
-        Log.d(LOG_TAG, "resumeMedia")
+        Log.d(LOG_TAG, "resumeMedia ${sharedStorage!!.getResumePosition()}")
         if (!mediaPlayer!!.isPlaying) {
             mediaPlayer?.seekTo(sharedStorage!!.getResumePosition())
             mediaPlayer?.start()
@@ -312,6 +426,50 @@ class MediaPlayerService : Service(), MediaPlayer.OnCompletionListener, MediaPla
 
             sendDuration()
         }
+    }
+
+    fun skipToPrevious() {
+        var currentSongIndex = 0
+
+        for (i in songs) {
+            if (i.ID == sharedStorage?.getCurrentSong()!!.ID) {
+                currentSongIndex = songs.indexOf(i)
+            }
+        }
+
+        if (currentSongIndex == 0) {
+            sharedStorage?.setCurrentSong(songs[songs.size - 1])
+        } else if (currentSongIndex != 0 && currentSongIndex < songs.size) {
+            sharedStorage?.setCurrentSong(songs[currentSongIndex - 1])
+        }
+
+        stopMedia()
+        //reset mediaPlayer
+        mediaPlayer?.reset()
+        initMediaPlayer()
+        playMedia()
+    }
+
+    fun skipToNext() {
+        var currentSongIndex = 0
+
+        for (i in songs) {
+            if (i.ID == sharedStorage?.getCurrentSong()!!.ID) {
+                currentSongIndex = songs.indexOf(i)
+            }
+        }
+
+        if (currentSongIndex == songs!!.size - 1) {
+            sharedStorage?.setCurrentSong(songs[0])
+        } else {
+            sharedStorage?.setCurrentSong(songs[currentSongIndex + 1])
+        }
+
+        stopMedia()
+        //reset mediaPlayer
+        mediaPlayer?.reset()
+        initMediaPlayer()
+        playMedia()
     }
 
     private fun sendDuration() {
@@ -363,7 +521,7 @@ class MediaPlayerService : Service(), MediaPlayer.OnCompletionListener, MediaPla
 
         //An audio file is passed to the service through putExtra();
         mediaFile = intent?.extras?.getString("media")
-        intent?.extras?.getInt("song_index")?.let { sharedStorage?.setCurrentSongIndex(it) }
+//        intent?.extras?.getInt("song_index")?.let { sharedStorage?.setCurrentSongIndex(it) }
 
         // Request Song focus
         if (!requestAudioFocus()) {
@@ -371,18 +529,116 @@ class MediaPlayerService : Service(), MediaPlayer.OnCompletionListener, MediaPla
             stopSelf()
         }
 
-        if (mediaFile != null && mediaFile != "") initMediaPlayer()
+//        if (mediaFile != null && mediaFile != "") initMediaPlayer()
+
+        if (mediaSessionManager == null) {
+            try {
+                initMediaSession()
+//                initMediaPlayer()
+            } catch (e: RemoteException) {
+                e.printStackTrace()
+                stopSelf()
+            }
+        }
+
+        //Handle Intent action from MediaSession.TransportControls
+        handleIncomingActions(intent)
 
         Log.d(LOG_TAG, "onStartCommand: $mediaFile")
         return super.onStartCommand(intent, flags, startId)
     }
 
+    fun buildNotification(status: PlaybackStatus) {
+
+        var notificationAction = R.drawable.ic_pause
+        var playPauseAction: PendingIntent? = null
+
+        when(status) {
+            PlaybackStatus.PLAYING -> {
+                notificationAction = R.drawable.ic_pause
+
+                playPauseAction = playbackAction(1)
+            }
+
+            PlaybackStatus.PAUSED -> {
+                notificationAction = R.drawable.ic_play
+
+                playPauseAction = playbackAction(0)
+            }
+        }
+        val largeIcon = BitmapFactory.decodeResource(
+            resources,
+            R.drawable.gani)
+
+        var notificationBuilder: NotificationCompat.Builder = NotificationCompat.Builder(this)
+            .setShowWhen(false)
+            .setStyle(android.support.v4.media.app.NotificationCompat.MediaStyle()
+                .setMediaSession(mediaSession!!.sessionToken)
+                .setShowActionsInCompactView(0, 1, 2))
+            .setColor(resources.getColor(R.color.blue))
+            .setLargeIcon(largeIcon)
+            .setSmallIcon(R.drawable.ic_logo)
+
+            .setContentText("Gani Matebayev")
+            .setContentTitle(sharedStorage?.getCurrentSong()!!.title)
+            .setContentInfo(sharedStorage?.getCurrentSong()!!.album)
+
+            .addAction(R.drawable.ic_prev, "previous", playbackAction(3))
+            .addAction(notificationAction, "pause", playPauseAction)
+            .addAction(R.drawable.ic_next, "next", playbackAction(2))
 
 
-    private fun buildNotification(paused: PlaybackStatus) {
-
+        (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIFICATION_ID, notificationBuilder.build())
     }
 
+    private fun removeNotification() {
+        var notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.cancel(NOTIFICATION_ID)
+    }
+
+    private fun playbackAction(i: Int): PendingIntent? {
+        var playbackAction = Intent(this, MediaPlayerService::class.java)
+
+        when(i) {
+            0 -> {
+                playbackAction.action = ACTION_PLAY
+                return PendingIntent.getService(this, i, playbackAction, 0)
+            }
+            1 -> {
+                playbackAction.action = ACTION_PAUSE
+                return PendingIntent.getService(this, i, playbackAction, 0)
+            }
+            2 -> {
+                playbackAction.action = ACTION_NEXT
+                return PendingIntent.getService(this, i, playbackAction, 0)
+            }
+            3 -> {
+                playbackAction.action = ACTION_PREVIOUS
+                return PendingIntent.getService(this, i, playbackAction, 0)
+            }
+        }
+
+        playbackAction.action = ACTION_PLAY
+        return PendingIntent.getService(this, i, playbackAction, 0)
+    }
+
+    private fun handleIncomingActions(playbackAction: Intent?) {
+        if (playbackAction == null  || playbackAction.action == null) return
+
+        var actionString = playbackAction.action
+
+        if (actionString!! == ACTION_PLAY) {
+            transportControls!!.play()
+        } else if (actionString == ACTION_PAUSE) {
+            transportControls!!.pause()
+        } else if (actionString == ACTION_NEXT) {
+            transportControls!!.skipToNext()
+        } else if (actionString == ACTION_PREVIOUS) {
+            transportControls!!.skipToPrevious()
+        } else if (actionString == ACTION_STOP) {
+            transportControls!!.stop()
+        }
+    }
     // Handle incoming calls
     private fun callStateListener() {
         // get the telephony manager
@@ -420,6 +676,7 @@ class MediaPlayerService : Service(), MediaPlayer.OnCompletionListener, MediaPla
         // Listen for changes to the device call state.
         telephonyManager?.listen(phoneStateListener, PhoneStateListener.LISTEN_CALL_STATE)
     }
+
     override fun onDestroy() {
         super.onDestroy()
 
@@ -428,7 +685,15 @@ class MediaPlayerService : Service(), MediaPlayer.OnCompletionListener, MediaPla
             mediaPlayer?.release()
         }
 
+        removeNotification()
         removeAudioFocus()
+
+        if (phoneStateListener != null) {
+            telephonyManager?.listen(phoneStateListener, PhoneStateListener.LISTEN_NONE)
+        }
+
+        unregisterReceiver(becomingNoisyReceiver)
+        unregisterReceiver(playNewSongReceiver)
     }
 }
 

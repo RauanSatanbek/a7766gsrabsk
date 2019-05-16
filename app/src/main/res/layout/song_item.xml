@@ -54,7 +54,7 @@
             <!--app:layout_constraintTop_toTopOf="parent"/>-->
 
     <ImageButton
-            android:id="@+id/imageButtonNote"
+            android:id="@+id/imageButtonEarPhone"
             android:layout_width="36dp"
             android:layout_height="36dp"
             app:srcCompat="@drawable/ic_headphones"
@@ -65,9 +65,20 @@
             android:layout_marginTop="7dp"
             app:layout_constraintTop_toTopOf="parent"/>
 
+    <pl.droidsonroids.gif.GifImageView
+            android:id="@+id/mGifVisualizer"
+            android:layout_width="24dp"
+            android:layout_height="20dp"
+            android:src="@drawable/pinkequalizer"
+            app:layout_constraintStart_toStartOf="@+id/selectedItemBg"
+            android:layout_marginStart="16dp"
+            android:layout_marginBottom="6dp"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+    />
 
     <ImageButton
-            android:id="@+id/imageButtonEarPhone"
+            android:id="@+id/imageButtonNote"
             android:layout_width="36dp"
             android:layout_height="36dp"
             app:srcCompat="@drawable/ic_sign_note_1"
