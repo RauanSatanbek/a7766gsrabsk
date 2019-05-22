@@ -2,12 +2,10 @@ package i.am.rauan.satanbek.a7766gsrabsk
 
 import android.content.Context
 import android.content.SharedPreferences
-import android.provider.MediaStore.Audio
 import com.google.gson.reflect.TypeToken
 import com.google.gson.Gson
-import android.Manifest.permission_group.STORAGE
-import android.R.id.edit
-
+import i.am.rauan.satanbek.a7766gsrabsk.db.Song
+import i.am.rauan.satanbek.a7766gsrabsk.db.SongModel
 
 
 class Storage(context: Context) {
@@ -109,7 +107,7 @@ class Storage(context: Context) {
         return getPreferences()!!.getInt(colorMode, DARK_MODE)
     }
 
-    fun storeSongs(arrayList: ArrayList<Song>) {
+    fun storeSongs(arrayList: ArrayList<SongModel>) {
         val editor = getEditor()
         val gson = Gson()
         val json = gson.toJson(arrayList)
@@ -117,13 +115,13 @@ class Storage(context: Context) {
         editor.apply()
     }
 
-    fun loadSongs(): ArrayList<Song> {
+    fun loadSongs(): ArrayList<SongModel> {
         preferences = getPreferences()
         val gson = Gson()
         val json = preferences?.getString("audioArrayList", null)
 
         if (json != null) {
-            val type = object : TypeToken<ArrayList<Song>>() {}.type
+            val type = object : TypeToken<ArrayList<SongModel>>() {}.type
 
             return gson.fromJson(json, type)
         }
@@ -131,16 +129,16 @@ class Storage(context: Context) {
         return ArrayList()
     }
 
-    fun setCurrentSong(song: Song) {
+    fun setCurrentSong(song: SongModel) {
         getEditor().putString("currentSong", Gson().toJson(song)).apply()
     }
 
-    fun getCurrentSong(): Song {
-        val type = object : TypeToken<Song>() {}.type
+    fun getCurrentSong(): SongModel {
+        val type = object : TypeToken<SongModel>() {}.type
         if (getPreferences()!!.getString("currentSong", "") != "")
             return Gson().fromJson(getPreferences()!!.getString("currentSong", ""), type)
 
-        return Song(0, 0, "", "", "", "", false, "", "")
+        return SongModel("", "", "", "", "", "", "", "")
     }
 
     fun isPlayerActive(): Boolean {
@@ -149,6 +147,14 @@ class Storage(context: Context) {
 
     fun playerActive() {
         getEditor().putBoolean("is_player_active", true).apply()
+    }
+
+    fun storeFileDir(fileDir: String){
+        getEditor().putString("files_dir", fileDir).apply()
+    }
+
+    fun getFileDir(): String  {
+        return getPreferences()!!.getString("files_dir", "")
     }
 
     private fun getPreferences(): SharedPreferences? {

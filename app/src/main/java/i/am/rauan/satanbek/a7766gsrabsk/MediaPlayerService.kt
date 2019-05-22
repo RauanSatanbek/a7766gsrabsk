@@ -22,15 +22,17 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.support.v4.app.NotificationCompat
 import android.graphics.BitmapFactory
-import android.graphics.Bitmap
 import android.media.session.MediaSessionManager
+import android.net.Uri
+import i.am.rauan.satanbek.a7766gsrabsk.db.SongModel
+import java.lang.Exception
 
 
 class MediaPlayerService : Service(), MediaPlayer.OnCompletionListener, MediaPlayer.OnPreparedListener,
     MediaPlayer.OnErrorListener, MediaPlayer.OnSeekCompleteListener, MediaPlayer.OnInfoListener,
     MediaPlayer.OnBufferingUpdateListener, AudioManager.OnAudioFocusChangeListener {
 
-    private var LOG_TAG: String = "MediaPlayer error"
+    private var LOG_TAG: String = "main"
     private var mediaPlayer: MediaPlayer? = null
     private lateinit var audioManager: AudioManager
 
@@ -45,7 +47,7 @@ class MediaPlayerService : Service(), MediaPlayer.OnCompletionListener, MediaPla
     private var phoneStateListener: PhoneStateListener? = null
     private var telephonyManager: TelephonyManager? = null
     private var sharedStorage: Storage? = null
-    private var songs: ArrayList<Song> = ArrayList()
+    private var songs: ArrayList<SongModel> = ArrayList()
 
     val ACTION_PLAY = "com.valdioveliu.valdio.audioplayer.ACTION_PLAY"
     val ACTION_PAUSE = "com.valdioveliu.valdio.audioplayer.ACTION_PAUSE"
@@ -81,7 +83,10 @@ class MediaPlayerService : Service(), MediaPlayer.OnCompletionListener, MediaPla
             stopMedia()
             mediaPlayer?.reset()
             initMediaPlayer()
-            playMedia()
+            if (sharedStorage?.getCurrentSong()!!.path != "") {
+                Log.d(LOG_TAG, "playNewSongReceiver: START play")
+                playMedia()
+            }
         }
     }
 
@@ -197,8 +202,8 @@ class MediaPlayerService : Service(), MediaPlayer.OnCompletionListener, MediaPla
         // Update the current metadata
         mediaSession!!.setMetadata(
             MediaMetadataCompat.Builder()
-                .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, sharedStorage?.getCurrentSong()!!.album)
-                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, sharedStorage?.getCurrentSong()!!.title)
+                .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, sharedStorage?.getCurrentSong()!!.playlist)
+                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, sharedStorage?.getCurrentSong()!!.name)
             .build()
     )
 }
@@ -256,6 +261,7 @@ class MediaPlayerService : Service(), MediaPlayer.OnCompletionListener, MediaPla
                 if (!sharedStorage!!.getPause()) {
                     if (mediaPlayer == null) initMediaPlayer()
                     else if (!mediaPlayer!!.isPlaying) {
+                        Log.d(LOG_TAG, "AUDIOFOCUS_GAIN: START play")
                         playMedia()
 
                         val local = Intent(sharedStorage?.updateUIReceiverAction)
@@ -328,41 +334,48 @@ class MediaPlayerService : Service(), MediaPlayer.OnCompletionListener, MediaPla
     }
 
     private fun initMediaPlayer() {
-        var song = sharedStorage?.getCurrentSong()
+        try {
+            var song = sharedStorage?.getCurrentSong()
 
-        mediaPlayer = MediaPlayer.create(this, song?.resID!!)
-        mediaPlayer?.seekTo(sharedStorage!!.getResumePosition())
+            if (song!!.path != "") {
+                mediaPlayer = MediaPlayer.create(this, Uri.parse(song.path))
 
-        // Set up MediaPlayer event listener
-        mediaPlayer?.setOnCompletionListener(this)
-        mediaPlayer?.setOnErrorListener(this)
-        mediaPlayer?.setOnPreparedListener(this)
-        mediaPlayer?.setOnBufferingUpdateListener(this)
-        mediaPlayer?.setOnSeekCompleteListener(this)
-        mediaPlayer?.setOnInfoListener(this)
+                Log.d("main", "service: initPlayer with PATH - $song")
+            } else {
+    //            mediaPlayer = MediaPlayer.create(this, R.raw.song)
+                mediaPlayer = MediaPlayer()
+                mediaPlayer?.setAudioStreamType(AudioManager.STREAM_MUSIC)
+                mediaPlayer?.setDataSource(song.url)
 
-        mediaPlayer?.setOnCompletionListener {
-            when (sharedStorage?.getRefreshMode()) {
-                0 -> {
-                    val local = Intent(sharedStorage?.updateUIReceiverAction)
-                    local.putExtra("showPlayButton", true)
-                    sendBroadcast(local)
-                }
-                1 -> {
+                mediaPlayer?.setOnPreparedListener(MediaPlayer.OnPreparedListener { mp ->
+                    Log.d(LOG_TAG, "onPrepared Listener")
+                    mediaPlayer?.seekTo(sharedStorage!!.getResumePosition())
+
                     playMedia()
+                })
+                mediaPlayer?.prepareAsync()
 
-                }
+//                    prepare() // might take long! (for buffering, etc)
+
+                Log.d("main", "service: initPlayer with URL - $song")
             }
 
-            // Update Seek bar progress
-            val local = Intent()
-            local.action = sharedStorage?.updateUIReceiverAction
-            local.putExtra("seek_bar_progress", true)
-            local.putExtra("seek_bar_progress_value", 0)
-            local.putExtra("tv_duration", mediaPlayer?.currentDurationInMinutes)
+            // Set up MediaPlayer event listener
+            mediaPlayer?.setOnCompletionListener(this)
+            mediaPlayer?.setOnErrorListener(this)
+            mediaPlayer?.setOnBufferingUpdateListener(this)
+            mediaPlayer?.setOnSeekCompleteListener(this)
+            mediaPlayer?.setOnInfoListener(this)
+
+
+            val local = Intent(sharedStorage?.updateUIReceiverAction)
+            local.putExtra("tv_duration", "0.00")
             this.sendBroadcast(local)
 
-            Toast.makeText(this, "END", Toast.LENGTH_LONG)
+
+        } catch (e: Exception) {
+            Log.d(LOG_TAG, "initMediaPlayer error: ${e}")
+            Toast.makeText(this, "Проверьте ваше подключение к интернету", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -373,10 +386,36 @@ class MediaPlayerService : Service(), MediaPlayer.OnCompletionListener, MediaPla
 
         if (!mediaPlayer!!.isPlaying) {
 
+            mediaPlayer?.setOnCompletionListener {
+                when (sharedStorage?.getRefreshMode()) {
+                    0 -> {
+                        skipToNext()
+                    }
+                    1 -> {
+                        Log.d(LOG_TAG, "LOOP: START play")
+                        playMedia()
+
+                    }
+                }
+
+                // Update Seek bar progress
+                val local = Intent(sharedStorage?.updateUIReceiverAction)
+                local.putExtra("seek_bar_progress", true)
+                local.putExtra("seek_bar_progress_value", 0)
+                local.putExtra("tv_duration", mediaPlayer?.durationInMinutes)
+                this.sendBroadcast(local)
+
+                Toast.makeText(this, "END", Toast.LENGTH_LONG)
+            }
+
             mediaPlayer?.start()
             sharedStorage?.setPause(false)
 
             sendDuration()
+
+            var intent = Intent(sharedStorage?.updateUIReceiverAction)
+            intent.putExtra(sharedStorage?.updateUIPlayUpdate, true)
+            sendBroadcast(intent)
         }
     }
 
@@ -429,10 +468,11 @@ class MediaPlayerService : Service(), MediaPlayer.OnCompletionListener, MediaPla
     }
 
     fun skipToPrevious() {
+        songs = sharedStorage?.loadSongs()!!
         var currentSongIndex = 0
 
         for (i in songs) {
-            if (i.ID == sharedStorage?.getCurrentSong()!!.ID) {
+            if (i.id == sharedStorage?.getCurrentSong()!!.id) {
                 currentSongIndex = songs.indexOf(i)
             }
         }
@@ -443,18 +483,24 @@ class MediaPlayerService : Service(), MediaPlayer.OnCompletionListener, MediaPla
             sharedStorage?.setCurrentSong(songs[currentSongIndex - 1])
         }
 
+        sharedStorage!!.setResumePosition(0)
         stopMedia()
         //reset mediaPlayer
         mediaPlayer?.reset()
         initMediaPlayer()
-        playMedia()
+
+        if (sharedStorage?.getCurrentSong()!!.path != "") {
+            Log.d(LOG_TAG, "skip song: ${sharedStorage?.getCurrentSong()!!.path != ""}")
+            playMedia()
+        }
     }
 
     fun skipToNext() {
         var currentSongIndex = 0
+        songs = sharedStorage?.loadSongs()!!
 
         for (i in songs) {
-            if (i.ID == sharedStorage?.getCurrentSong()!!.ID) {
+            if (i.key == sharedStorage?.getCurrentSong()!!.key) {
                 currentSongIndex = songs.indexOf(i)
             }
         }
@@ -465,11 +511,15 @@ class MediaPlayerService : Service(), MediaPlayer.OnCompletionListener, MediaPla
             sharedStorage?.setCurrentSong(songs[currentSongIndex + 1])
         }
 
+        sharedStorage!!.setResumePosition(0)
         stopMedia()
         //reset mediaPlayer
         mediaPlayer?.reset()
         initMediaPlayer()
-        playMedia()
+        if (sharedStorage?.getCurrentSong()!!.path != "") {
+            Log.d(LOG_TAG, "skip song: ${sharedStorage?.getCurrentSong()!!.path != ""}")
+            playMedia()
+        }
     }
 
     private fun sendDuration() {
@@ -580,8 +630,8 @@ class MediaPlayerService : Service(), MediaPlayer.OnCompletionListener, MediaPla
             .setSmallIcon(R.drawable.ic_logo)
 
             .setContentText("Gani Matebayev")
-            .setContentTitle(sharedStorage?.getCurrentSong()!!.title)
-            .setContentInfo(sharedStorage?.getCurrentSong()!!.album)
+            .setContentTitle(sharedStorage?.getCurrentSong()!!.name)
+            .setContentInfo(sharedStorage?.getCurrentSong()!!.playlist)
 
             .addAction(R.drawable.ic_prev, "previous", playbackAction(3))
             .addAction(notificationAction, "pause", playPauseAction)

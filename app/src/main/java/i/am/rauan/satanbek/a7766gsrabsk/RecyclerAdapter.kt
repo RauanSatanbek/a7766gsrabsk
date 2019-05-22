@@ -5,11 +5,17 @@ import android.support.v7.widget.RecyclerView
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.ViewGroup
+import i.am.rauan.satanbek.a7766gsrabsk.db.SongModel
 
-class RecyclerAdapter(private val songs: ArrayList<Song>, private val context: Context): RecyclerView.Adapter<SongsHolder>() {
+class RecyclerAdapter(private val songs: ArrayList<SongModel>, private val context: Context): RecyclerView.Adapter<SongsHolder>() {
 
     var holders: ArrayList<SongsHolder> = ArrayList()
     private var sharedStorage: Storage = Storage(context)
+
+    fun addItem(song: SongModel) {
+        songs.add(song)
+        notifyDataSetChanged()
+    }
 
     override fun onCreateViewHolder(p0: ViewGroup, p1: Int): SongsHolder {
         return SongsHolder(LayoutInflater.from(context).inflate(R.layout.song_item, p0, false), context)
@@ -51,8 +57,18 @@ class RecyclerAdapter(private val songs: ArrayList<Song>, private val context: C
         offAll()
 
         for (i in holders) {
-            if (i.song.ID == sharedStorage.getCurrentSong().ID) {
+            if (i.song.key == sharedStorage.getCurrentSong().key) {
                 i.playing()
+            }
+        }
+    }
+
+    fun selected() {
+        for (i in holders) {
+            if (i.song.key == sharedStorage.getCurrentSong().key) {
+                i.selected()
+            } else {
+                i.notSelected()
             }
         }
     }
@@ -61,7 +77,7 @@ class RecyclerAdapter(private val songs: ArrayList<Song>, private val context: C
         offAll()
 
         for (i in holders) {
-            if (i.song.ID == sharedStorage.getCurrentSong().ID) {
+            if (i.song.key == sharedStorage.getCurrentSong().key) {
                 i.resume()
             }
         }
@@ -69,7 +85,7 @@ class RecyclerAdapter(private val songs: ArrayList<Song>, private val context: C
 
     fun offAll() {
         for (i in holders) {
-            if (i.song.ID != sharedStorage.getCurrentSong().ID) {
+            if (i.song.key != sharedStorage.getCurrentSong().key) {
                 i.off()
             }
         }
@@ -80,7 +96,7 @@ class RecyclerAdapter(private val songs: ArrayList<Song>, private val context: C
             if (i.isPlaying) {
                 i.off()
             }
-            if (i.song.ID == sharedStorage.getCurrentSong().ID) {
+            if (i.song.key == sharedStorage.getCurrentSong().key) {
                 i.playing()
             }
         }
@@ -91,16 +107,8 @@ class RecyclerAdapter(private val songs: ArrayList<Song>, private val context: C
             if (i.isPlaying) {
                 i.off()
             }
-            if (i.song.ID == sharedStorage.getCurrentSong().ID) {
+            if (i.song.key == sharedStorage.getCurrentSong().key) {
                 i.playing()
-            }
-        }
-    }
-
-    fun setAudioSessionID(audioSessionId: Int) {
-        for (i in holders) {
-            if (i.isPlaying) {
-                i.setAudioSessionID(audioSessionId)
             }
         }
     }

@@ -1,3 +1,123 @@
+//        songs.add(
+//            Song(
+//                1,
+//                R.raw.song,
+//                "null",
+//                "Ауылым ай",
+//                "Шырқашы жүрек",
+//                "Gani Matebayev",
+//                true,
+//                "",
+//                ""
+//            )
+//        )
+//        songs.add(
+//            Song(
+//                2,
+//                R.raw.song2,
+//                "null",
+//                "Дүнген қызы арманым",
+//                "Ауылды аңсау",
+//                "Gani Matebayev",
+//                false,
+//                "",
+//                ""
+//            )
+//        )
+//        songs.add(
+//            Song(
+//                3,
+//                R.raw.song3,
+//                "null",
+//                "Достар",
+//                "Шырқашы жүрек",
+//                "Gani Matebayev",
+//                false,
+//                "",
+//                ""
+//            )
+//        )
+//        songs.add(
+//            Song(
+//                4,
+//                R.raw.song3,
+//                "null",
+//                "Бауырларыма",
+//                "Ауылды аңсау",
+//                "Gani Matebayev",
+//                false,
+//                "",
+//                ""
+//            )
+//        )
+//        songs.add(
+//            Song(
+//                5,
+//                R.raw.song3,
+//                "null",
+//                "Бұл сағыныш",
+//                "Шырқашы жүрек",
+//                "Gani Matebayev",
+//                true,
+//                "",
+//                ""
+//            )
+//        )
+//        songs.add(
+//            Song(
+//                6,
+//                R.raw.song3,
+//                "null",
+//                "Аңғал досым",
+//                "Ауылды аңсау",
+//                "Gani Matebayev",
+//                true,
+//                "",
+//                ""
+//            )
+//        )
+//        songs.add(
+//            Song(
+//                7,
+//                R.raw.song3,
+//                "null",
+//                "Әкені аңсау",
+//                "Шырқашы жүрек",
+//                "Gani Matebayev",
+//                false,
+//                "",
+//                ""
+//            )
+//        )
+//        songs.add(
+//            Song(
+//                8,
+//                R.raw.song3,
+//                "null",
+//                "Ақ маржан",
+//                "Ауылды аңсау",
+//                "Gani Matebayev",
+//                false,
+//                "",
+//                ""
+//            )
+//        )
+//        songs.add(
+//            Song(
+//                9,
+//                R.raw.song3,
+//                "null",
+//                "Сағындым ғой",
+//                "Ауылды аңсау",
+//                "Gani Matebayev",
+//                false,
+//                "",
+//                ""
+//            )
+//        )
+
+
+
 @file:Suppress("IMPLICIT_CAST_TO_ANY")
 
 package i.am.rauan.satanbek.a7766gsrabsk

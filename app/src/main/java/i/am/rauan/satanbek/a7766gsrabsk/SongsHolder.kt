@@ -2,12 +2,16 @@ package i.am.rauan.satanbek.a7766gsrabsk
 
 import android.content.Context
 import android.content.Intent
-import android.support.v7.content.res.AppCompatResources
 import android.support.v7.widget.RecyclerView
 import android.util.Log
 import android.view.View
-import kotlinx.android.synthetic.main.app_bar_main.*
+import android.widget.Toast
+import com.google.firebase.storage.FirebaseStorage
+import i.am.rauan.satanbek.a7766gsrabsk.db.Song
+import i.am.rauan.satanbek.a7766gsrabsk.db.SongModel
+import i.am.rauan.satanbek.a7766gsrabsk.db.SqliteDatabase
 import kotlinx.android.synthetic.main.song_item.view.*
+import java.io.File
 
 class SongsHolder(itemView: View, private val context: Context) : RecyclerView.ViewHolder(itemView), View.OnClickListener {
     private var itemView: View = itemView
@@ -18,50 +22,117 @@ class SongsHolder(itemView: View, private val context: Context) : RecyclerView.V
     var earphone = itemView.imageButtonEarPhone
     var mGifVisualizer = itemView.mGifVisualizer
     var download = itemView.imageButtonDownload
+    var progressBar = itemView.downloadProgressBar
     var play = itemView.imageButtonPlay
     var pause = itemView.imageButtonPause
 
     var selectedItem = itemView.selectedItemBg
     var songTitle = itemView.song_title
     private var sharedStorage: Storage = Storage(context)
-    var song: Song = Song(0, 0, "", "", "", "", false, "", "")
+    var song: SongModel =
+        SongModel("", "", "", "", "", "", "", "")
 
     var isPlaying = false
 
+    var TAG = "main"
     init {
-        itemView.setOnClickListener(this)
         play.setOnClickListener(this)
         pause.setOnClickListener(this)
+        download.setOnClickListener(this)
+
+        itemView.setOnClickListener {
+            if(!isPlaying) {
+                playBtnClicked()
+            } else {
+                pauseBtnClicked()
+            }
+        }
     }
 
     override fun onClick(v: View?) {
         when(v?.id) {
             R.id.imageButtonPlay -> {
-                if(sharedStorage.getCurrentSong() != null && song.ID != sharedStorage.getCurrentSong().ID) {
-                    sharedStorage.setResumePosition(0)
+                playBtnClicked()
+            }
+
+            R.id.imageButtonPause -> {
+                pauseBtnClicked()
+            }
+
+            R.id.imageButtonDownload -> {
+                download.visibility = View.GONE
+                progressBar.visibility = View.VISIBLE
+
+                var pathname = "${sharedStorage.getFileDir()}/${song.file}"
+
+                var storage = FirebaseStorage.getInstance("gs://ganimatebayev.appspot.com")
+
+                var storageRef = storage!!.reference
+
+                var audio = storageRef.child(song.file!!)
+
+                val localFile = File(pathname)
+                var a = localFile.createNewFile()
+                Log.d(TAG, "is created: ${a}")
+                Log.d("main", "Is Song Exists: ${localFile.exists()}, can read: ${localFile.canRead()}")
+
+                audio.getFile(localFile).addOnSuccessListener {
+                    // Local temp file has been created
+                    Log.d(TAG, "Local temp file has been created")
+                    Runtime.getRuntime().exec("chmod 777 $pathname")
+                    Log.d("main", "Is Song Exists: ${localFile.exists()}, can read: ${localFile.canRead()}")
+
+                    Toast.makeText(context, "Файл успешно загружен", Toast.LENGTH_LONG).show()
+                    song.path = pathname
+
+                    var sqliteDatabase = SqliteDatabase(context)
+                    sqliteDatabase.updateSongPath(song)
+
+                    progressBar.visibility = View.GONE
+                    download.visibility = View.GONE
+                }.addOnFailureListener {
+                    // Handle any errors
+                    Log.d(TAG, "Handle any errors")
+                    progressBar.visibility = View.GONE
+                    download.visibility = View.VISIBLE
                 }
+            }
+        }
+    }
+
+    private fun pauseBtnClicked() {
+        if (isPlaying) {
+            var intent = Intent(sharedStorage.updateUIReceiverAction)
+            intent.putExtra(sharedStorage.updateUIPause, true)
+            context.sendBroadcast(intent)
+
+            off()
+
+            isPlaying = false
+            pause()
+            selectedItem.visibility = View.VISIBLE
+        }
+    }
+
+    private fun playBtnClicked() {
+        if (!isPlaying) {
+            if(sharedStorage.getCurrentSong() != null && song.key != sharedStorage.getCurrentSong().key) {
+                sharedStorage.setResumePosition(0)
 
                 sharedStorage.setCurrentSong(song)
 
                 var intent = Intent(sharedStorage.updateUIReceiverAction)
                 intent.putExtra(sharedStorage.updateUIPlay, true)
                 context.sendBroadcast(intent)
-
-                playing()
-                Log.d("main", "Adapter clicked to item with position = $adapterPosition")
-            }
-
-            R.id.imageButtonPause -> {
-                isPlaying = false
-
+            } else if (song.key == sharedStorage.getCurrentSong().key) {
                 var intent = Intent(sharedStorage.updateUIReceiverAction)
-                intent.putExtra(sharedStorage.updateUIPause, true)
+                intent.putExtra(sharedStorage.updateUIResume, true)
                 context.sendBroadcast(intent)
-
-                off()
-
-                selectedItem.visibility = View.VISIBLE
             }
+
+            isPlaying = true
+            playing()
+            selectedItem.visibility = View.VISIBLE
         }
     }
 
@@ -79,9 +150,14 @@ class SongsHolder(itemView: View, private val context: Context) : RecyclerView.V
         selectedItem.visibility = View.VISIBLE
 
         isPlaying = true
+
+        if (song.path != "") {
+            download.visibility = View.GONE
+        }
     }
 
     fun resume() {
+        Log.d("main", "resume")
         note.visibility = View.VISIBLE
 //        earphone.visibility = View.VISIBLE
         mGifVisualizer.visibility = View.INVISIBLE
@@ -95,6 +171,10 @@ class SongsHolder(itemView: View, private val context: Context) : RecyclerView.V
         selectedItem.visibility = View.VISIBLE
 
         isPlaying = false
+
+        if (song.path != "") {
+            download.visibility = View.GONE
+        }
     }
 
     fun setAudioSessionID(sessionID: Int) {
@@ -115,6 +195,18 @@ class SongsHolder(itemView: View, private val context: Context) : RecyclerView.V
 
         isPlaying = false
 
+        if (song.path != "") {
+            download.visibility = View.GONE
+        }
+
+    }
+
+    fun selected() {
+        selectedItem.visibility = View.VISIBLE
+    }
+
+    fun notSelected() {
+        selectedItem.visibility = View.INVISIBLE
     }
 
     fun pause() {
@@ -123,16 +215,17 @@ class SongsHolder(itemView: View, private val context: Context) : RecyclerView.V
         selectedItem.visibility = View.VISIBLE
     }
 
-    fun setData(song: Song) {
+    fun setData(song: SongModel) {
         off()
 
-        songTitle.text = song.title
+        songTitle.text = song.name
 
-        if (this.song.ID == sharedStorage.getCurrentSong().ID) {
+        if (this.song.key == sharedStorage.getCurrentSong().key) {
+            Log.d("main", "${song.name}, ${sharedStorage.getPause()}")
             if (sharedStorage.getPause()) {
                 resume()
             } else {
-                playing()
+                playBtnClicked()
             }
         }
     }

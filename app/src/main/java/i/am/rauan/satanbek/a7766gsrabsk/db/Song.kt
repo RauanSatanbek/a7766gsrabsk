@@ -1,4 +1,4 @@
-package i.am.rauan.satanbek.a7766gsrabsk
+package i.am.rauan.satanbek.a7766gsrabsk.db
 
 import java.io.Serializable
 
@@ -12,3 +12,4 @@ class Song(
     var isLoad: Boolean?,
     var text: String?,
     var url: String?) : Serializable
+

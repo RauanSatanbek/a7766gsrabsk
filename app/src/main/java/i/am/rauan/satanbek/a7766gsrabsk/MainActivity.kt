@@ -20,18 +20,27 @@ import android.content.Intent
 import android.content.BroadcastReceiver
 import android.content.IntentFilter
 import android.content.res.Configuration
+import android.database.sqlite.SQLiteDatabase
 import android.os.*
+import android.provider.Settings
 import android.support.design.widget.NavigationView
 import android.support.v4.app.ActivityCompat
 import android.support.v4.content.ContextCompat
 import android.support.v4.view.GravityCompat
 import android.support.v4.widget.DrawerLayout
 import android.support.v7.app.ActionBarDrawerToggle
+import android.support.v7.app.AlertDialog
 import android.support.v7.app.AppCompatDelegate
 import android.support.v7.content.res.AppCompatResources
+import android.support.v7.view.ContextThemeWrapper
 import android.support.v7.widget.LinearLayoutManager
 import android.view.Menu
 import android.view.MenuItem
+import android.widget.EditText
+import com.google.firebase.firestore.FirebaseFirestore
+import i.am.rauan.satanbek.a7766gsrabsk.db.PlaylistModel
+import i.am.rauan.satanbek.a7766gsrabsk.db.SongModel
+import i.am.rauan.satanbek.a7766gsrabsk.db.SqliteDatabase
 
 
 @SuppressLint("ByteOrderMark")
@@ -45,6 +54,8 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     private lateinit var runnable: Runnable
     private var handler: Handler = Handler()
     private var storage: FirebaseStorage? = null
+    // Access a Cloud Firestore instance from your Activity
+    val db = FirebaseFirestore.getInstance()
 
     private var sharedStorage: Storage? = null
 
@@ -52,7 +63,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     private var serviceBound = false
     private var updateUIReciver: BroadcastReceiver? = null
 
-    private var songs: ArrayList<Song> = ArrayList()
+    private var songs: ArrayList<SongModel> = ArrayList()
 
     private lateinit var drawer: DrawerLayout
     private lateinit var toggle: ActionBarDrawerToggle
@@ -62,6 +73,8 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
     //AudioPlayer notification ID
     val NOTIFICATION_ID = 101
+
+    var sqliteDatabase: SqliteDatabase? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -91,6 +104,14 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
         // Init storage
         sharedStorage = Storage(this)
+        // Init database
+        sqliteDatabase = SqliteDatabase(this)
+
+        createFolder("gani-matebayev")
+
+        getPlaylistFromFirebase()
+        createMenu()
+
         loadSongs()
 
         initUI()
@@ -98,12 +119,77 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         initMediaService()
     }
 
+    override fun onStart() {
+        super.onStart()
+
+    }
+
+    private fun getPlaylistFromFirebase() {
+        db.collection("playlist").get()
+            .addOnSuccessListener {result  ->
+                for (doc in result) {
+
+                    var playlist = PlaylistModel(0, doc.id, doc.data.get("name") as String, doc.data.get("image") as String, Integer.parseInt(doc.data.get("count").toString()), "")
+
+                   var success = sqliteDatabase?.addSingerPlaylist(playlist)
+                    Log.d(TAG, "GET PLAYLIST: $success ${playlist}")
+                }
+
+                createMenu()
+            }
+            .addOnFailureListener { exception ->
+                Log.d(TAG, "Error getting documents: ${exception}")
+            }
+    }
+
+    private fun createMenu() {
+        var menu = nav_view.menu
+        menu.clear()
+
+        var subMenu = menu.addSubMenu("")
+        subMenu.add(0, MENU_ID_FAVORITE, Menu.FIRST, "Таңдаулы").setIcon(R.drawable.ic_star)
+
+        if (sqliteDatabase != null) {
+            sqliteDatabase?.getAllOwnPlaylist()!!.forEach {
+                subMenu.add(0, it.id!!, Menu.FIRST, it.name).setIcon(R.drawable.ic_menu_headphone)
+            }
+        }
+
+//        subMenu.add(0, Menu.FIRST + 1, Menu.FIRST, "Менің жинағым").setIcon(R.drawable.ic_menu_headphone)
+
+        subMenu.add(0, 0, Menu.FIRST, "").isEnabled = false
+
+        subMenu.add(0, MENU_ID_SONGS, Menu.FIRST, "Барлық әндер").setIcon(R.drawable.ic_sign_note_1)
+        if (sqliteDatabase != null) {
+            Log.d(TAG, "SINGER Plalist, ${sqliteDatabase?.getAllSingerPlaylist()!!}")
+
+            sqliteDatabase?.getAllSingerPlaylist()!!.forEach {
+                subMenu.add(0, it.id!!, Menu.FIRST, it.name).setIcon(R.drawable.ic_album)
+            }
+        }
+//        subMenu.add(0, Menu.FIRST + 3, Menu.FIRST, "Ауылды аңсау").setIcon(R.drawable.ic_album)
+//        subMenu.add(0, Menu.FIRST + 4, Menu.FIRST, "Шырқашы жүрек").setIcon(R.drawable.ic_album)
+
+        subMenu.add(0, MENU_ID_LOADED, Menu.FIRST, "Сақтаулы").setIcon(R.drawable.ic_menu_loaded)
+//        subMenu.add(0, MENU_ID_ADD, Menu.FIRST, "Жинақ ашу").setIcon(R.drawable.ic_add)
+
+        subMenu.add(0, 0, Menu.FIRST, "").isEnabled = false
+        subMenu.add(0, 0, Menu.FIRST, "").isEnabled = false
+
+        nav_view.invalidate()
+
+
+
+//        if (sqliteDatabase != null) {
+//            sqliteDatabase!!.addSingerPlaylist(PlaylistModel(0, "Шырқашы жүрек", "null", "null"))
+//            sqliteDatabase!!.addOwnPlaylist(PlaylistModel(0, "Best of Gani", "null", "null"))
+//
+//            createMenu()
+//        }
+    }
+
     override fun onRestart() {
         super.onRestart()
-
-        if (recyclerAdapter != null) {
-            recyclerAdapter?.play()
-        }
 
         var notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.cancel(NOTIFICATION_ID)
@@ -120,7 +206,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         updateUIReciver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
 
-                if (intent.getStringExtra("tv_duration") != "") {
+                if (intent.getStringExtra("tv_duration") != "" && intent.getStringExtra("tv_duration") != null) {
                     Log.d(TAG, "onReceive tv_duration = ${intent.getStringExtra("tv_duration")}")
                     tv_duration.text = intent.getStringExtra("tv_duration")
                 }
@@ -148,27 +234,22 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
                 // PLAY
                 if (intent.getBooleanExtra(sharedStorage?.updateUIPlay, false)) {
                     mediaPlayerContainer.visibility = View.VISIBLE
+                    recyclerAdapter!!.play()
 
                     val broadcastIntent = Intent(sharedStorage!!.playNewSongReceiverAction)
                     broadcastIntent.putExtra("play", true)
                     sendBroadcast(broadcastIntent)
-
-                    activateVisualizer()
-                    activateSeekBar()
-                    showPauseButton()
-
-                    recyclerAdapter?.play()
-                    sharedStorage?.setPause(false)
                 }
 
                 // PAUSE
                 if (intent.getBooleanExtra(sharedStorage?.updateUIPause, false)) {
+                    recyclerAdapter!!.pause()
                     Pause()
                 }
 
                 // RESUME
                 if (intent.getBooleanExtra(sharedStorage?.updateUIResume, false)) {
-
+                    Play()
                 }
 
                 // STOP
@@ -178,11 +259,13 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
                 // NEXT
                 if (intent.getBooleanExtra(sharedStorage?.updateUISkipToNext, false)) {
+                    recyclerAdapter!!.selected()
                     Next()
                 }
 
                 // PREVIOUS
                 if (intent.getBooleanExtra(sharedStorage?.updateUISkipToPrevious, false)) {
+                    recyclerAdapter!!.selected()
                     Previous()
                 }
 
@@ -332,6 +415,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     }
 
     private fun showPauseButton() {
+        mediaPlayerContainer.visibility = View.VISIBLE
         pauseBtn.visibility = View.VISIBLE
         pauseBtn.isEnabled = true
 
@@ -340,6 +424,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     }
 
     private fun showPlayButton() {
+        mediaPlayerContainer.visibility = View.VISIBLE
         pauseBtn.visibility = View.INVISIBLE
         pauseBtn.isEnabled = false
 
@@ -406,6 +491,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         runnable = Runnable {
             seek_bar.progress = player!!.getCurrentSeconds()
             tv_pass.text = player!!.getCurrentDurationInMinutes()
+//            tv_duration.text = player!!.getDurationInMinutes()
 
             handler.postDelayed(runnable, 1000)
         }
@@ -447,30 +533,54 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     }
 
     private fun loadSongs() {
+        db.collection("songs").get()
+            .addOnSuccessListener {result  ->
+                for (doc in result) {
+                    Log.d(TAG, "GET DOC: ${doc.id} ${doc.data}")
+
+                    var sm = doc.data
+                    var song = SongModel("", doc.id, sm.get("name") as String?, sm.get("playlist") as String?, sm.get("file") as String?, sm.get("text") as String?, "", sm.get("url") as String?)
+                    songs.add(song)
+                    sqliteDatabase?.addSong(song)
+                }
+
+                sharedStorage?.storeSongs(songs)
+                initRecyclerView(INIT_RECYCLER_FIREBASE)
+
+            }
+            .addOnFailureListener { exception ->
+                Log.d(TAG, "Error getting documents: ${exception}")
+
+
+                initRecyclerView(INIT_RECYCLER_DOWNLOAD)
+            }
+
+    }
+
+    fun initRecyclerView(initType: Int) {
         linearLayoutManager = LinearLayoutManager(this)
         listOfSongs.layoutManager = linearLayoutManager
         songs = ArrayList()
 
-        songs.add(Song(1, R.raw.song, "null", "Ауылым ай", "Шырқашы жүрек", "Gani Matebayev", true, "", ""))
-        songs.add(Song(2, R.raw.song2, "null", "Дүнген қызы арманым", "Ауылды аңсау", "Gani Matebayev", false, "", ""))
-        songs.add(Song(3, R.raw.song3, "null", "Достар", "Шырқашы жүрек", "Gani Matebayev",false, "", ""))
-        songs.add(Song(4, R.raw.song3, "null", "Бауырларыма", "Ауылды аңсау", "Gani Matebayev", false, "", ""))
-        songs.add(Song(5 ,R.raw.song3, "null", "Бұл сағыныш", "Шырқашы жүрек", "Gani Matebayev", true, "", ""))
-        songs.add(Song(6 ,R.raw.song3, "null", "Аңғал досым", "Ауылды аңсау", "Gani Matebayev", true, "", ""))
-        songs.add(Song(7 ,R.raw.song3, "null", "Әкені аңсау", "Шырқашы жүрек", "Gani Matebayev", false, "", ""))
-        songs.add(Song(8 ,R.raw.song3, "null", "Ақ маржан", "Ауылды аңсау", "Gani Matebayev", false, "", ""))
-        songs.add(Song(9 ,R.raw.song3, "null", "Сағындым ғой", "Ауылды аңсау", "Gani Matebayev", false, "", ""))
+        if (initType == INIT_RECYCLER_FIREBASE) {
+            songs = sqliteDatabase!!.getAllSongs()
+            sharedStorage?.storeSongs(songs)
+        } else if( initType == INIT_RECYCLER_DOWNLOAD) {
+            songs = sqliteDatabase!!.getLoadedSongs()
+            sharedStorage?.storeSongs(songs)
+        }
 
-        songs.add(Song(10, R.raw.song, "null", "Ауылым ай", "Шырқашы жүрек", "Gani Matebayev", true, "", ""))
-        songs.add(Song(11, R.raw.song2, "null", "Дүнген қызы арманым", "Ауылды аңсау", "Gani Matebayev", false, "", ""))
-        songs.add(Song(12, R.raw.song3, "null", "Достар", "Шырқашы жүрек", "Gani Matebayev",false, "", ""))
-        songs.add(Song(13, R.raw.song3, "null", "Бауырларыма", "Ауылды аңсау", "Gani Matebayev", false, "", ""))
-        songs.add(Song(14 ,R.raw.song3, "null", "Бұл сағыныш", "Шырқашы жүрек", "Gani Matebayev", true, "", ""))
-        songs.add(Song(15 ,R.raw.song3, "null", "Аңғал досым", "Ауылды аңсау", "Gani Matebayev", true, "", ""))
-        songs.add(Song(16 ,R.raw.song3, "null", "Әкені аңсау", "Шырқашы жүрек", "Gani Matebayev", false, "", ""))
-        songs.add(Song(17 ,R.raw.song3, "null", "Ақ маржан", "Ауылды аңсау", "Gani Matebayev", false, "", ""))
-        songs.add(Song(18 ,R.raw.song3, "null", "Сағындым ғой", "Ауылды аңсау", "Gani Matebayev", false, "", ""))
+        recyclerAdapter = RecyclerAdapter(songs, this)
 
+        listOfSongs.adapter = recyclerAdapter
+    }
+
+    fun initRecyclerViewWithSingerPlaylist(playlist: PlaylistModel) {
+        linearLayoutManager = LinearLayoutManager(this)
+        listOfSongs.layoutManager = linearLayoutManager
+        songs = ArrayList()
+
+        songs = sqliteDatabase!!.getSongsBy("playlist", playlist.key!!)
         sharedStorage?.storeSongs(songs)
 
         recyclerAdapter = RecyclerAdapter(songs, this)
@@ -487,9 +597,11 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         } else {
             // Service is active
             // Send media with BroadcastReceiver
-            val broadcastIntent = Intent(sharedStorage!!.playNewSongReceiverAction)
-            sendBroadcast(broadcastIntent)
-            recyclerAdapter?.play()
+            if (!sharedStorage?.getPause()!!) {
+                val broadcastIntent = Intent(sharedStorage!!.playNewSongReceiverAction)
+                sendBroadcast(broadcastIntent)
+                recyclerAdapter?.play()
+            }
         }
     }
 
@@ -560,11 +672,12 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
                     showPlayButton()
                 }
                 false -> {
-                    recyclerAdapter?.resume()
-
+                    Log.d(TAG, "DSHADUIWHDOIJWA")
                     if (!serviceBound) {
                         initMediaService()
                     }
+
+                    Play()
                     mediaPlayerContainer.visibility = View.VISIBLE
                 }
             }
@@ -588,7 +701,6 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         serviceBound = savedInstanceState!!.getBoolean("ServiceState")
     }
 
-
     // Handle request permissions
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
@@ -608,16 +720,18 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         }
     }
 
-
     private fun createFolder(fileName: String){
         val folder = filesDir
         val f = File(folder, fileName)
         if (!f.exists()) {
             f.mkdirs()
+
             Log.d(TAG, "is folder created: ${f.absolutePath}")
         } else {
             Log.d(TAG, "folder is exists: ${f.absolutePath}")
         }
+
+        sharedStorage?.storeFileDir(f.absolutePath)
 
         val songs = File("$folder/$fileName", "songs")
         if (!songs.exists()) {
@@ -641,6 +755,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 //        var bimgs = imgs.mkdir()
     }
 
+
     override fun onPostCreate(savedInstanceState: Bundle?) {
         super.onPostCreate(savedInstanceState)
         toggle.syncState()
@@ -659,12 +774,55 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     }
 
     override fun onNavigationItemSelected(item: MenuItem): Boolean {
+        Log.d(TAG, "navItemSelected: ${item.itemId} ${item.title}")
 
-//        when (item.itemId) {
-//            R.id.nav_item_one -> Toast.makeText(this, "Clicked item one", Toast.LENGTH_SHORT).show()
-//            R.id.nav_item_two -> Toast.makeText(this, "Clicked item two", Toast.LENGTH_SHORT).show()
-//            R.id.nav_item_four -> Toast.makeText(this, "Clicked item four", Toast.LENGTH_SHORT).show()
-//        }
+        if (drawer_layout != null) {
+            drawer_layout.closeDrawer(GravityCompat.START)
+        }
+        when (item.itemId) {
+            MENU_ID_ADD -> {
+                val builder = AlertDialog.Builder(ContextThemeWrapper(this, R.style.AlertDialogCustom))
+                val inflater = layoutInflater
+                builder.setTitle("Жаңа жинақ ашу")
+                val dialogLayout = inflater.inflate(R.layout.alert_dialog_with_edittext, null)
+                val editText  = dialogLayout.findViewById<EditText>(R.id.editText)
+                builder.setView(dialogLayout)
+                builder.setPositiveButton("OK") { dialogInterface, i ->
+                    if (editText.text.toString() != "") {
+                        if (sqliteDatabase == null) {
+                            sqliteDatabase = SqliteDatabase(this)
+                        }
+
+                        sqliteDatabase?.addOwnPlaylist(PlaylistModel(0, "", editText.text.toString(), "", 0, ""))
+
+                        Toast.makeText(applicationContext, "${editText.text} жинағы сәтті ашылды", Toast.LENGTH_SHORT).show()
+                        createMenu()
+                    }
+                }
+
+                builder.show()
+            }
+
+            MENU_ID_LOADED -> {
+                initRecyclerView(INIT_RECYCLER_DOWNLOAD)
+            }
+
+            MENU_ID_SONGS -> {
+                initRecyclerView(INIT_RECYCLER_FIREBASE)
+            }
+
+            else -> {
+                var playlist = sqliteDatabase?.getPlaylistBy("id", item.itemId.toString())
+
+                if (playlist != null) {
+                    initRecyclerViewWithSingerPlaylist(playlist)
+                }
+
+                Log.d(TAG, "Menu clicked: $playlist")
+
+            }
+        }
+
         return true
     }
 
@@ -707,4 +865,14 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         sharedStorage?.setPause(true)
     }
 
+    companion object {
+        private const val MENU_ID_FAVORITE = 101
+        private const val MENU_ID_SONGS = 102
+        private const val MENU_ID_LOADED = 103
+        private const val MENU_ID_ADD = 104
+        private const val MENU_ID_SINGER_PLAYLIST = 105
+
+        private const val INIT_RECYCLER_DOWNLOAD = 1
+        private const val INIT_RECYCLER_FIREBASE = 2
+    }
 }
